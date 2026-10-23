@@ -218,3 +218,56 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ============================================================
+# Secrets & local env
+#   API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, PERPLEXITY_API_KEY,
+#   GEMINI_API_KEY, ...) belong in .env — never commit them.
+#   Commit a .env.example with placeholder values instead.
+# ============================================================
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+service-account*.json
+
+# ============================================================
+# AI coding tools
+#   Shared team config IS committed: CLAUDE.md, AGENTS.md, GEMINI.md,
+#   .claude/settings.json, .claude/commands/, .claude/agents/,
+#   .claude/skills/, .mcp.json, .codex/config.toml, .agent/, .agents/
+# ============================================================
+
+# Claude Code — personal settings, personal memory, worktrees
+.claude/settings.local.json
+.claude/worktrees/
+CLAUDE.local.md
+
+# OpenAI Codex — personal instruction override and local state
+AGENTS.override.md
+.codex/auth.json
+.codex/sessions/
+.codex/log/
+.codex/history.jsonl
+
+# Google Antigravity — do NOT ignore .agent/ or .agents/; Antigravity
+#   stops loading rules/workflows/skills from ignored folders. Use
+#   .git/info/exclude for anything you want to keep personal there.
+
+# Perplexity — no project files; just keep PERPLEXITY_API_KEY in .env
+
+# ============================================================
+# Editors & OS
+# ============================================================
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+*.swp
+*~
+.DS_Store
+._*
+Thumbs.db
