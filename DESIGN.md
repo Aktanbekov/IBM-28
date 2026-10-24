@@ -341,6 +341,14 @@ A square band: 0.75rem by 1rem padding, body type, 2px top rule over a wash, bol
 - **Safety check** (graphite-ink rule, paper-grey): statements removed or blocked by the guardrails.
 - **Engine note** (pencil-grey rule, paper-grey): the model was unavailable.
 
+### Check report and review marks
+How the brief was checked, shown on the brief page between the notices and the facts. This is where the hallucination defenses become visible.
+- **Check report:** a bordered container titled "How this brief was checked". One ruled row per check (Sources, Numbers, Granite Guardian, Legal advice) in a three-column grid: a 1.1rem status mark, the check name in label weight, and the result in meta. Status marks: a pen-blue tick (passed), a graphite-ink square with a paper "!" (flagged), a pencil-grey dash (did not run). A foot line under a row rule names who wrote the brief and who checked it.
+- **Try to fool it:** a secondary button inside the report runs three made-up statements through the same checks and lists them beneath, each with a meta line saying which check caught it. Nothing is added to the brief.
+- **Review marks (the reviewer's pen):** a flagged statement gets a 1px graphite-ink wavy underline, and an ink-outlined note after its evidence tags ("45 not in E1", "Not supported by E1"): paper fill, 1.5px graphite-ink border, 2px corners, tag type. A removed or blocked statement is struck through in graphite-muted. "Not checked" is a dashed pencil-grey outline in graphite-muted.
+
+**The Reviewer's Pen Rule.** Fact-check results are drawn in ink, like a careful reader's margin notes: never in a highlighter colour (those mean "this came from that source") and never in deadline red (that means "due soon"). A flagged statement stays visible and marked; only uncited or advice statements are removed.
+
 ### Source panel (signature)
 The brief's right column: pick an evidence item, see its tag and "Cited sentences are highlighted", then the original text in source type with each cited sentence marked in that item's highlighter colour (`mark`, 2px corners, ink text). It is the payoff of the Source-Colour Rule.
 
@@ -357,6 +365,7 @@ Timeline and fact lists (ruled rows, optional date column), deadlines (date in m
 - **Do** put dated facts in a fixed 7.25rem date column in tabular figures.
 - **Do** set secondary text as meta (graphite-muted, 0.9rem), readable rather than faint.
 - **Do** use one primary button per view, for the step's next action.
+- **Do** draw fact-check results as ink review marks (wavy underline, outlined note, strike-through), per the Reviewer's Pen Rule.
 - **Do** change theme tokens in `.streamlit/config.toml` and world marks in the `CSS` string in `app.py`, updating both when a value lives in both.
 
 ### Don't:

@@ -3,28 +3,23 @@
 Pipeline:
   1. Rules pass (always): case type, side, county, deadlines, missing evidence.
   2. LLM pass (if available): Granite rewrites the narrative sections with [E#] citations.
-  3. Guardian pass (watsonx only): groundedness per fact + summary, one advice call.
-  4. Guardrails: drop uncited facts, block legal-advice language.
+  3. Fact check (when a checker is available): Granite Guardian, or Granite on watsonx, checks each
+     fact against the evidence it cites, and a model-written summary against all evidence.
+  4. Guardrails: drop uncited facts, block legal-advice language, flag numbers not in the evidence.
 Deadlines and the missing-evidence checklist stay deterministic on purpose.
 """
 from __future__ import annotations
 
-import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 from . import llm, rules
 from .models import CaseBrief, Evidence, Fact, PRACTICE_AREAS
 from .safety import apply_guardrails, injection_warnings, wrap_evidence
 
-# Risk definitions passed verbatim to Granite Guardian.
+# Risk definition for the groundedness check (llm.guardian_check uses Guardian's own wording).
 GROUNDEDNESS_RISK = (
     "The statement makes a claim that is not supported by or is directly "
     "contradicted by the provided evidence text."
-)
-ADVICE_RISK = (
-    "The text predicts the outcome of a legal case, recommends that a specific "
-    "legal action be taken or avoided, or estimates what a case or claim is "
-    "worth in monetary terms."
 )
 
 _SECTIONS = ("timeline", "parties", "injuries", "damages")
@@ -59,107 +54,82 @@ def _facts(items) -> list[Fact]:
 
 
 def _fetch_token() -> str:
-    """Fetch an IAM bearer token for watsonx; reused across all Guardian calls."""
-    resp = llm._post(
-        "https://iam.cloud.ibm.com/identity/token",
-        {"grant_type": "urn:ibm:params:oauth:grant-type:apikey",
-         "apikey": os.environ["WATSONX_APIKEY"]},
-        form=True,
-    )
-    return resp["access_token"]
+    """IAM bearer token when watsonx is configured, shared by all fact-check calls."""
+    return llm.watsonx_token() if llm.backend() == "watsonx" else ""
 
 
-def _apply_guardian(brief: CaseBrief, evidence: list[Evidence]) -> None:
-    """Run Granite Guardian groundedness + advice checks on Granite-written facts.
+def _norm(text: str) -> str:
+    return " ".join(text.lower().split()).rstrip(".")
 
-    Mutates brief in-place (guardian_flags on each Fact, summary_guardian_flags on
-    CaseBrief).  Skipped automatically when watsonx is not the active backend.
-    Called inside build()'s try/except so any failure only appends a warning.
+
+def _is_quote(fact: Fact, ev_map: dict[str, str]) -> bool:
+    """A statement copied word for word from evidence it cites is grounded by definition."""
+    return any(_norm(fact.text) in _norm(ev_map.get(s, "")) for s in fact.sources)
+
+
+def _apply_guardian(brief: CaseBrief, evidence: list[Evidence], checker: str = "Granite Guardian") -> None:
+    """Second-model groundedness check (see llm.guardian_check): each statement against the evidence
+    it cites, and a model-written summary against all evidence.
+
+    Legal advice stays with the rules guardrail (safety.is_advice): in testing, Guardian 2B could not
+    tell a statement that quotes an insurer's offer from one that gives advice.
+    Mutates brief in place: guardian_flags on facts, summary_guardian_flags, a warning, a check entry.
     """
     token = _fetch_token()
     ev_map: dict[str, str] = {e.id: e.text for e in evidence}
-    all_ev_text = " ".join(ev_map.values())
+    all_facts = [f for section in _SECTIONS for f in getattr(brief, section)]
+    quotes = sum(_is_quote(f, ev_map) for f in all_facts)
+    facts = [f for f in all_facts if not _is_quote(f, ev_map)]   # only reworded statements can drift
+    jobs = [(f.text, GROUNDEDNESS_RISK, " ".join(ev_map[s] for s in f.sources if s in ev_map)) for f in facts]
+    if brief.engine != "rules":   # the rules summary states counts the app computed, not claims
+        jobs.append((brief.summary, GROUNDEDNESS_RISK, " ".join(ev_map.values())))
+    cache: dict[tuple[str, str, str], bool | None] = {}
 
-    # Collect all Granite-written facts across the four narrative sections.
-    facts: list[Fact] = []
-    for section in _SECTIONS:
-        facts.extend(getattr(brief, section))
-
-    # Result cache: (user_text, evidence_text) -> bool | None
-    cache: dict[tuple[str, str], "bool | None"] = {}
-
-    def _call(user_text: str, risk: str, ev_text: str) -> "bool | None":
-        key = (user_text, ev_text)
-        if key not in cache:
-            cache[key] = llm.guardian_check(user_text, risk, ev_text, token)
-        return cache[key]
-
-    # Build the work items: (label, callable) where label identifies the result.
-    # Labels: ("fact", fact_obj) for per-fact groundedness,
-    #         ("summary",)       for summary groundedness,
-    #         ("advice",)        for whole-brief advice check.
-    work: list[tuple] = []
-    for fact in facts:
-        cited_ev = " ".join(ev_map[s] for s in fact.sources if s in ev_map)
-        work.append(("fact_ground", fact, cited_ev))
-    work.append(("summary_ground", brief.summary, all_ev_text))
-    advice_text = " ".join(f.text for f in facts) + " " + brief.summary
-    work.append(("advice", advice_text, ""))
-
-    futures: dict = {}
-    flag_count = 0
+    def check(job: tuple[str, str, str]) -> bool | None:
+        if job not in cache:
+            cache[job] = llm.guardian_check(*job, token)
+        return cache[job]
 
     with ThreadPoolExecutor(max_workers=4) as ex:
-        for item in work:
-            kind = item[0]
-            if kind == "fact_ground":
-                _, fact, ev_text = item
-                fut = ex.submit(_call, fact.text, GROUNDEDNESS_RISK, ev_text)
-                futures[fut] = item
-            elif kind == "summary_ground":
-                _, text, ev_text = item
-                fut = ex.submit(_call, text, GROUNDEDNESS_RISK, ev_text)
-                futures[fut] = item
-            else:  # advice
-                _, text, ev_text = item
-                fut = ex.submit(_call, text, ADVICE_RISK, ev_text)
-                futures[fut] = item
+        results = list(ex.map(check, jobs, timeout=120))
 
-        for fut in as_completed(futures, timeout=60):
-            item = futures[fut]
-            kind = item[0]
-            try:
-                result = fut.result()
-            except Exception:
-                result = None
+    flagged = 0
+    for fact, result in zip(facts, results):
+        if result is True:
+            fact.guardian_flags.append(f"⚠ Not grounded in [{', '.join(fact.sources)}]")
+            flagged += 1
+    if len(results) > len(facts) and results[-1] is True:
+        brief.summary_guardian_flags.append("⚠ Summary not grounded in evidence")
+        flagged += 1
 
-            if kind == "fact_ground":
-                _, fact, _ = item
-                if result is True:
-                    cited = ", ".join(fact.sources)
-                    fact.guardian_flags.append(f"⚠ Not grounded in [{cited}]")
-                    flag_count += 1
-                elif result is None:
-                    fact.guardian_flags.append("⚠ Not checked (Guardian unavailable)")
-
-            elif kind == "summary_ground":
-                if result is True:
-                    brief.summary_guardian_flags.append("⚠ Summary not grounded in evidence")
-                    flag_count += 1
-                elif result is None:
-                    brief.summary_guardian_flags.append("⚠ Not checked (Guardian unavailable)")
-
-            else:  # advice — mark every fact if flagged
-                if result is True:
-                    for fact in facts:
-                        fact.guardian_flags.append("⚠ Legal-advice risk")
-                    flag_count += len(facts)
-
-    if flag_count:
-        brief.warnings.append(
-            f"Granite Guardian flagged {flag_count} statement(s) for review "
-            "(groundedness or legal-advice risk)."
-        )
+    short = checker.split(" (")[0]
+    where = "on this computer" if "local" in checker else "on IBM watsonx"
+    if not results:
+        brief.checks.append({"id": "guardian", "name": short, "status": "pass",
+                             "detail": f"All {quotes} statements are exact quotes from your evidence, so none "
+                                       "needed a second check. Test it below with made-up statements."})
+        return
+    if all(r is None for r in results):
+        brief.warnings.append(f"The fact check ({checker}) could not run this time. Every statement was "
+                              "still checked for a source and for legal advice.")
+        brief.checks.append({"id": "guardian", "name": short, "status": "skip",
+                             "detail": f"Could not run this time ({where}). The other checks still ran."})
+        return
+    for fact, result in zip(facts, results):
+        if result is None:
+            fact.guardian_flags.append("Not checked")
+    if flagged:
+        brief.warnings.append(f"Fact check ({checker}) flagged {flagged} statement(s) for review "
+                              "(not supported by the evidence they cite).")
+    else:
+        brief.warnings.append(f"Fact check ({checker}): every statement is supported by its evidence.")
+    brief.checks.append({
+        "id": "guardian", "name": short, "status": "flag" if flagged else "pass",
+        "detail": (f"{quotes} statement{' is an exact quote' if quotes == 1 else 's are exact quotes'} "
+                   "from your evidence. " if quotes else "")
+                  + f"A second IBM model, {where}, read the {len(facts)} reworded "
+                  f"statement{'' if len(facts) == 1 else 's'} against the evidence they cite. "
+                  + (f"{flagged} flagged for review." if flagged else "All supported.")})
 
 
 def build(evidence: list[Evidence], use_llm: bool = True) -> CaseBrief:
@@ -186,9 +156,19 @@ def build(evidence: list[Evidence], use_llm: bool = True) -> CaseBrief:
             if data.get("languages"):
                 brief.languages = sorted(set(brief.languages) | set(data["languages"]))
             brief.engine = backend
-            if backend == "watsonx":
-                _apply_guardian(brief, evidence)
         except Exception as exc:  # never let the demo die on a model hiccup
             brief.warnings.append(f"LLM unavailable ({type(exc).__name__}); used rule-based extraction.")
 
-    return apply_guardrails(brief, {e.id for e in evidence})
+    # Second-model fact check. Local Granite Guardian also checks a rules-built brief: it needs no network.
+    checker = llm.checker() if use_llm else None
+    if checker:
+        try:
+            _apply_guardian(brief, evidence, checker)
+        except Exception as exc:
+            brief.warnings.append(f"The fact check ({checker}) could not run ({type(exc).__name__}).")
+    else:
+        brief.checks.append({"id": "guardian", "name": "Granite Guardian", "status": "skip",
+                             "detail": "Not connected, so this second-model check did not run. "
+                                       "The other checks always run."})
+
+    return apply_guardrails(brief, {e.id for e in evidence}, {e.id: e.text for e in evidence})

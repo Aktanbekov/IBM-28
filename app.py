@@ -13,7 +13,7 @@ import streamlit as st
 
 from casebridge import brief as brief_agent
 from casebridge import ingest, llm, matching, rules, safety, scoreboard
-from casebridge.models import Evidence, PRACTICE_AREAS
+from casebridge.models import CaseBrief, Evidence, Fact, PRACTICE_AREAS
 
 st.set_page_config(page_title="CaseBridge", page_icon=":material/edit_note:", layout="wide")
 
@@ -80,8 +80,26 @@ CSS = """
 .cb-tag{display:inline-block;margin-left:.4rem;padding:0 .4rem;border-radius:2px;font-size:.75rem;font-weight:700;
   line-height:1.4rem;color:#1E2230;white-space:nowrap;font-variant-numeric:tabular-nums}
 .cb-tag:first-child{margin-left:0}
-.cb-tag-warn{display:inline-block;margin-left:.4rem;padding:0 .55rem;border-radius:2px;font-size:.75rem;font-weight:700;
-  line-height:1.4rem;background:#FF9F2E;color:#1E2230;white-space:nowrap}
+.cb-flag,.cb-unchecked{display:inline-block;margin-left:.4rem;padding:0 .45rem;border-radius:2px;font-size:.75rem;
+  font-weight:700;line-height:1.25rem;white-space:nowrap;vertical-align:.05em;background:#fff}
+.cb-flag{border:1.5px solid #1E2230;color:#1E2230}
+.cb-unchecked{border:1px dashed #8A90A6;color:#4A5068}
+.cb-flagged{text-decoration:underline wavy #1E2230;text-decoration-thickness:1px;text-underline-offset:.28em;
+  text-decoration-skip-ink:none}
+.cb-removed{text-decoration:line-through;text-decoration-thickness:1.5px;color:#4A5068}
+.cb-caught{display:block;font-size:.85rem;color:#4A5068;margin-top:.1rem}
+.cb-caught b{color:#1E2230}
+.cb-list.cb-checks li{grid-template-columns:1.1rem 9rem 1fr;gap:.85rem;align-items:start}
+.cb-check-name{font-weight:700}
+.cb-check-detail{font-size:.9rem;color:#4A5068}
+.cb-mark{width:1.1rem;height:1.1rem;margin-top:.15rem}
+.cb-mark.pass{background:CHECK_BLUE center/contain no-repeat}
+.cb-mark.flag{background:#1E2230;border-radius:2px;color:#fff;font-size:.75rem;font-weight:700;line-height:1.1rem;
+  text-align:center}
+.cb-mark.skip{height:0;margin-top:.7rem;border-top:2px solid #8A90A6}
+.cb-check-foot{font-size:.9rem;color:#4A5068;margin:.35rem 0 0;padding-top:.6rem;border-top:1px solid #E3E5EC}
+.cb-check-foot b{color:#1E2230}
+.st-key-checks h3.cb-h{margin-top:.1rem}
 .cb-redact{display:inline-block;padding:0 .4rem;border-radius:2px;background:#1E2230;color:#fff;font-size:.72rem;
   font-weight:700;letter-spacing:.03em;line-height:1.35rem;white-space:nowrap}
 ul.cb-list,ul.cb-why{list-style:none;margin:0;padding:0 !important}
@@ -188,9 +206,23 @@ def tag(eid: str) -> str:
     return f'<span class="cb-tag" style="background:{highlighter(eid)}">{esc(eid)}</span>'
 
 
+def flag_label(flag: str) -> str:
+    """Engine flag text -> the reviewer's margin note: "⚠ Not grounded in [E1]" -> "Not supported by E1"."""
+    text = flag.removeprefix("⚠").strip().replace("[", "").replace("]", "")
+    return (text.replace("Summary not grounded in evidence", "Not supported by the evidence")
+                .replace("Not grounded in", "Not supported by"))
+
+
 def guardian_tags(flags: list) -> str:
-    """Amber chips for Guardian flags; empty string when flags is empty."""
-    return "".join(f'<span class="cb-tag-warn">{esc(str(flag))}</span>' for flag in flags)
+    """Fact-check marks: an ink-outlined note for a problem (flags starting ⚠), a dashed one for "Not checked".
+    Not highlighter colours: those only ever mean "this came from that source"."""
+    return "".join(f'<span class="{"cb-flag" if str(f).startswith("⚠") else "cb-unchecked"}">'
+                   f'{esc(flag_label(str(f)))}</span>' for f in flags)
+
+
+def flagged(text_html: str, flags: list) -> str:
+    """A wavy pen underline under a statement a check flagged, the way a reviewer marks a draft."""
+    return f'<span class="cb-flagged">{text_html}</span>' if any(str(f).startswith("⚠") for f in flags) else text_html
 
 
 def rich(text: str) -> str:
@@ -250,14 +282,74 @@ def show_facts(title: str, facts: list, dated: bool = False):
     rows = []
     for f in facts:
         tags = "".join(tag(s) for s in f["sources"])
-        gflags = guardian_tags(f.get("guardian_flags") or [])
+        flags = f.get("guardian_flags") or []
+        text, gflags = flagged(rich(f["text"]), flags), guardian_tags(flags)
         if dated:
             rows.append(f'<li><span class="cb-date">{esc(short_date(f.get("when") or ""))}</span>'
-                        f'<span>{rich(f["text"])} {tags}{gflags}</span></li>')
+                        f'<span>{text} {tags}{gflags}</span></li>')
         else:
             when = f'<b>{esc(f["when"])}</b> · ' if f.get("when") else ""
-            rows.append(f'<li><span>{when}{rich(f["text"])} {tags}{gflags}</span></li>')
+            rows.append(f'<li><span>{when}{text} {tags}{gflags}</span></li>')
     st.html(f'<ul class="cb-list{" cb-dated" if dated else ""}">{"".join(rows)}</ul>')
+
+
+CHECK_WARNINGS = ("Removed", "Blocked", "Flagged", "Fact check", "The fact check")
+CHECK_ORDER = ["sources", "numbers", "guardian", "advice"]
+
+
+def fool_the_checks(b, ev_by_id: dict) -> str:
+    """Three made-up statements go through the same checks as the brief. Returns the result rows (HTML).
+    Nothing here touches the client's brief."""
+    first = next(iter(ev_by_id.values()))
+    all_text = " ".join(e.text for e in ev_by_id.values())
+    speed = next(n for n in (45, 55, 65, 75, 85) if str(n) not in all_text)
+    invented = Fact(f"The other driver was going {speed} mph.", [first.id])
+    advice = Fact("You should sign the release and settle now.", [first.id])
+    uncited = Fact("The other driver admitted it was their fault.", [])
+    test = CaseBrief(b.case_type, b.client_side, b.county, "", engine=b.engine, timeline=[invented, advice, uncited])
+    safety.apply_guardrails(test, set(ev_by_id), {k: e.text for k, e in ev_by_id.items()})
+    caught = ["the numbers check"] if invented.guardian_flags else []
+    checker = llm.checker()
+    if checker:
+        with st.spinner(f"Asking {checker.split(' (')[0]}…"):
+            verdict = llm.guardian_check(invented.text, brief_agent.GROUNDEDNESS_RISK, first.text)
+        if verdict:
+            invented.guardian_flags.append(f"⚠ Not grounded in [{first.id}]")
+            where = "on this computer" if "local" in checker else "on IBM watsonx"
+            caught.append(f"{checker.split(' (')[0]} ({where})")
+    by = " and ".join(caught) or "no check"
+    return ('<ul class="cb-list">'
+            f'<li><span>{flagged(esc(invented.text), invented.guardian_flags)} {tag(first.id)}'
+            f'{guardian_tags(invented.guardian_flags)}<span class="cb-caught">An invented speed. '
+            f'Caught by <b>{esc(by)}</b>. It stays marked for review.</span></span></li>'
+            f'<li><span><span class="cb-removed">{esc(advice.text)}</span> {tag(first.id)}'
+            '<span class="cb-flag">Blocked: legal advice</span><span class="cb-caught">Advice, not a fact. '
+            'Caught by <b>the legal-advice check</b>. It never reaches the brief.</span></span></li>'
+            f'<li><span><span class="cb-removed">{esc(uncited.text)}</span>'
+            '<span class="cb-flag">Removed: no source</span><span class="cb-caught">Points to no evidence. '
+            'Caught by <b>the sources check</b>. It never reaches the brief.</span></span></li></ul>')
+
+
+def show_checks(b, ev_by_id: dict):
+    """How this brief was checked: one ruled row per check, then a live test with made-up statements."""
+    checks = sorted(getattr(b, "checks", []), key=lambda c: CHECK_ORDER.index(c["id"]) if c["id"] in CHECK_ORDER else 99)
+    mark = {"pass": '<span class="cb-mark pass"></span>', "flag": '<span class="cb-mark flag">!</span>',
+            "skip": '<span class="cb-mark skip"></span>'}
+    rows = "".join(f'<li>{mark.get(c["status"], mark["skip"])}<span class="cb-check-name">{esc(c["name"])}</span>'
+                   f'<span class="cb-check-detail">{esc(c["detail"])}</span></li>' for c in checks)
+    checker = llm.checker()
+    writer = "rules on this computer" if b.engine == "rules" else f"IBM Granite ({llm.model_name()}) via {b.engine}"
+    foot = (f"<b>Written by</b> {esc(writer)}. <b>Checked by</b> rules"
+            + (f" and {esc(checker)}" if checker else "") + ". Flagged statements stay visible and marked, "
+            "so you and your lawyer decide what to trust.")
+    with st.container(border=True, key="checks"):
+        heading("How this brief was checked")
+        st.html(f'<ul class="cb-list cb-checks">{rows}</ul><p class="cb-check-foot">{foot}</p>')
+        if st.button("Try to fool it: add made-up statements", key="fool", icon=":material/science:"):
+            ss.fool_result = (id(b), fool_the_checks(b, ev_by_id))
+        if ss.get("fool_result") and ss.fool_result[0] == id(b):
+            label("Three made-up statements, run through the same checks. None of them is added to your brief.")
+            st.html(ss.fool_result[1])
 
 
 def show_deadlines(deadlines: list[dict], stacked: bool = False):
@@ -277,9 +369,9 @@ def notice(text: str, deadlines: list[dict]):
     """Brief warnings: findings from the evidence get the one red rule, safety-check results an ink one.
 
     A finding also shows any rule-derived response date within 30 days that comes from the same evidence."""
-    if text.startswith(("Removed", "Blocked")):
+    if text.startswith(("Removed", "Blocked", "Flagged", "Fact check", "Granite")):
         kind, title, extra = "cb-safety", "Safety check", ""
-    elif text.startswith("LLM unavailable"):
+    elif text.startswith(("LLM unavailable", "The fact check")):
         kind, title, extra = "cb-note", "Engine note", ""
     else:
         kind, title = "cb-time", "Found in your evidence"
@@ -332,9 +424,12 @@ def reveal(text: str, names: dict[str, str], start: float = 0.0) -> tuple[str, f
 
 
 def engine_status(engine: str) -> tuple[str, str]:
+    checker = llm.checker()
     if engine == "rules":
-        return "Built offline with rules.", "No AI model connected."
-    return "Built with IBM Granite.", f"Connected through {engine}."
+        return "Built offline with rules.", ("No AI model connected." if not checker else
+                                             f"No chat model connected. Fact check: {checker}.")
+    return ("Built with IBM Granite.",
+            f"{llm.model_name()} through {engine}. Fact check: {checker or 'citations and rules'}.")
 
 
 def go(target: str):
@@ -459,7 +554,7 @@ if page.startswith("1"):
                     with st.spinner(f"Transcribing {up.name}…"):
                         ev = ingest.voice_evidence(data, up.name, voice_lang)
                     if captions.get(up.name):      # the client typed or corrected the transcript
-                        ev.text = captions[up.name]
+                        ev.text = safety.clean_speech(captions[up.name])[0] or captions[up.name]
                         # Update the title whenever the client provided their own text,
                         # regardless of whether whisper succeeded, failed, or was unclear.
                         if not ev.title.endswith("(transcribed)") and \
@@ -487,12 +582,14 @@ if page.startswith("1"):
             f'display:inline-block;margin-right:.6rem;padding:0 .4rem;border-radius:2px;font-size:.75rem;'
             f'font-weight:700;line-height:1.4rem;background:{highlighter(e.id)};color:#1E2230}}'
             for e in ss.evidence))
-        flagged = flagged_ids()
+        injected = flagged_ids()   # not `flagged`: that name is the review-mark helper
         for e in ss.evidence:
-            title = f"{e.title} · contains instructions to an AI" if e.id in flagged else e.title
-            icon = "gpp_bad" if e.id in flagged else KIND_ICONS.get(e.kind, "attach_file")
-            with st.expander(title, icon=f":material/{icon}:", key=f"ev_{e.id}", expanded=e.id in flagged):
-                st.html(blocked_stamp(e.text) if e.id in flagged else f'<p class="cb-source">{esc(e.text)}</p>')
+            title = f"{e.title} · contains instructions to an AI" if e.id in injected else e.title
+            icon = "gpp_bad" if e.id in injected else KIND_ICONS.get(e.kind, "attach_file")
+            with st.expander(title, icon=f":material/{icon}:", key=f"ev_{e.id}", expanded=e.id in injected):
+                st.html(blocked_stamp(e.text) if e.id in injected else f'<p class="cb-source">{esc(e.text)}</p>')
+                if e.kind == "voice":
+                    meta("Filler sounds, swearing and insults are left out of the transcript. Your recording is unchanged.")
         built_now = False
         if st.button("Rebuild my case brief" if ss.brief else "Build my case brief",
                      type="secondary" if ss.brief else "primary",
@@ -571,8 +668,10 @@ elif page.startswith("2"):
         c4.button("Find lawyers", type="primary", icon=":material/arrow_forward:", on_click=go,
                   args=(PAGES[2],), width="stretch")
 
+    # Check results are shown in the report below, so only evidence findings and engine notes stay notices.
     for w in b.warnings:
-        notice(w, b.deadlines)
+        if not w.startswith(CHECK_WARNINGS):
+            notice(w, b.deadlines)
 
     # Insurer tactics, one calm card per document: what each one means, and a question for a lawyer. Never advice.
     by_source: dict[str, list[dict]] = {}
@@ -592,6 +691,8 @@ elif page.startswith("2"):
         st.html(f'<div class="cb-notice cb-note"><b>Details that don\'t match: {esc(c["topic"])}</b>'
                 f'{rich(c["text"])} A lawyer will want to clear this up early. It is common and doesn\'t mean '
                 'anyone did something wrong.</div>')
+
+    show_checks(b, ev_by_id)
 
     left, right = st.columns([3, 2], gap="large")
     with left:

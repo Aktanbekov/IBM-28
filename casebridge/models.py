@@ -43,6 +43,9 @@ class CaseBrief:
     contradictions: list[dict] = field(default_factory=list)
     engine: str = "rules"
     summary_guardian_flags: list[str] = field(default_factory=list)
+    # How the brief was checked, one entry per check, for the UI's report:
+    # {"id": "sources"|"numbers"|"guardian"|"advice", "name", "status": "pass"|"flag"|"skip", "detail"}
+    checks: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)

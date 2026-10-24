@@ -26,6 +26,53 @@ ADVICE_PATTERNS = [
 ADVICE_RE = re.compile("|".join(ADVICE_PATTERNS), re.I)
 
 
+# --- Spoken-transcript cleanup ------------------------------------------------------------
+# Voice memos are recorded in shock: "this stupid driver crashed my car hm hm, f*** him, what
+# do I do". A lawyer needs the facts, not the filler sounds, swearing, insults or questions to
+# no one. The audio itself is never changed; only the transcript the brief is built from is.
+SPEECH_NOISE = [
+    # Curses aimed at someone, removed as a whole phrase: "fuck him", "screw that guy".
+    r"\b(?:fuck|screw|damn|to hell with)\s+(?:him|her|them|you|it|that|this)"
+    r"(?:\s+(?:guy|man|woman|lady|driver|person))?\b",
+    r"\bwhat the (?:fuck|hell|heck)\b",
+    # Asking for help out loud: not a fact about the accident.
+    r"\b(?:i don'?t know )?what (?:do|should|can) i do\b\??|\b(?:i don'?t know )?what to do\b\??",
+    # Swear words, including Whisper's own masking ("f***ing").
+    r"\bf+u+c+k+(?:ing|in'?|ed|er|ers|s)?\b|\bf\*+[a-z]*|\b(?:bull)?shit(?:ty|s)?\b"
+    r"|\bgod ?damn(?:ed|it)?\b|\bdamn(?:ed|it)?\b|\bbitch(?:es)?\b|\bcrap\b|\bass(?:holes?)?\b"
+    r"|\bbastards?\b|\bwtf\b",
+    # Insults about the other person. The fact ("the driver crashed my car") stays.
+    r"\b(?:stupid|idiot(?:ic|s)?|moron(?:ic|s)?|dumb(?:ass)?|jerk)\b",
+    # Filler sounds.
+    r"\b(?:u+h+m*|u+m+|h+m+|m{2,}|e+r+m+|a+h+|e+h+)\b",
+]
+SPEECH_NOISE_RE = re.compile("|".join(f"(?:{p})" for p in SPEECH_NOISE), re.I)
+REPEATED_WORD_RE = re.compile(r"(^|[.!?]\s+|\n)(\w{1,3})(?:[\s,]+\2\b)+\s*[.!?]?\s*(?=\S|$)", re.I)
+
+
+def clean_speech(text: str) -> tuple[str, int]:
+    """Remove filler sounds, swearing, insults and spoken help-questions from a transcript.
+    Returns (clean text, number of pieces removed)."""
+    clean, removed = SPEECH_NOISE_RE.subn("", text)
+    # A sentence that is one short word said over and over ("Him, him." is Whisper's
+    # usual mishearing of "hmm, hmm"; "No no no.") carries no fact.
+    clean, stutters = REPEATED_WORD_RE.subn(r"\1", clean)
+    removed += stutters
+    if not removed:
+        return text, 0
+    clean = re.sub(r"[ \t]+", " ", clean)
+    clean = re.sub(r" +([,.!?;:])", r"\1", clean)                # "car ," -> "car,"
+    clean = re.sub(r"([,;:])(?:\s*[,;:])+", r"\1", clean)          # ", ," -> ","
+    clean = re.sub(r"[,;:]+\s*([.!?])", r"\1", clean)              # ",." -> "."
+    clean = re.sub(r"([.!?])(?:\s*[,.!?;:])+", r"\1", clean)       # ". ," -> "."
+    clean = re.sub(r"(^|\n)[ ,.!?;:]+", r"\1", clean)               # punctuation left at a line start
+    clean = re.sub(r"[ ,;:]+(\n|$)", r"\1", clean).strip()
+    clean = re.sub(r"(^|[.!?]\s+|\n)([a-z])", lambda m: m.group(1) + m.group(2).upper(), clean)
+    if clean and clean[-1].isalnum():
+        clean += "."
+    return clean, removed
+
+
 def is_advice(text: str) -> bool:
     return bool(ADVICE_RE.search(text))
 
@@ -42,7 +89,58 @@ def enforce_citations(facts: list[Fact], valid_ids: set[str]) -> tuple[list[Fact
     return kept, dropped
 
 
-def apply_guardrails(brief: CaseBrief, valid_ids: set[str]) -> CaseBrief:
+# --- Numbers check -------------------------------------------------------------------------
+# The most common, most harmful hallucination in a brief is a wrong number: a speed, an amount,
+# a date, a time. Every number in a statement must appear in the evidence it cites. This runs
+# in every mode, so it works offline too.
+
+_NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _numbers(text: str) -> set[str]:
+    text = re.sub(r"\bE\d+\b", " ", text)   # evidence ids are not claims
+    found = set()
+    for raw in _NUMBER_RE.findall(text):
+        n = raw.rstrip(",.").replace(",", "")
+        n = re.sub(r"\.0+$", "", n).lstrip("0") or "0"
+        found.add(n)
+    return found
+
+
+def _evidence_numbers(text: str) -> set[str]:
+    found = _numbers(text)
+    for h, _ in re.findall(r"\b(\d{1,2}):(\d{2})\b", text):   # 17:42 also supports "5:42 pm"
+        h = int(h)
+        found |= {str(h % 12 or 12), str(h + 12 if h < 12 else h)}
+    return found
+
+
+def unsupported_numbers(text: str, cited_texts: list[str]) -> list[str]:
+    """Numbers in a statement that none of its cited evidence contains, in order."""
+    supported = set().union(*(_evidence_numbers(t) for t in cited_texts)) if cited_texts else set()
+    return sorted(_numbers(text) - supported, key=text.find)
+
+
+def check_numbers(brief: CaseBrief, evidence_texts: dict[str, str]) -> int:
+    """Flag facts (and the summary) with numbers their evidence doesn't contain. Returns the count."""
+    flagged = 0
+    for section in ("timeline", "parties", "injuries", "damages"):
+        for f in getattr(brief, section):
+            missing = unsupported_numbers(f.text, [evidence_texts[s] for s in f.sources if s in evidence_texts])
+            if missing:
+                f.guardian_flags.append(f"⚠ {', '.join(missing)} not in [{', '.join(f.sources)}]")
+                flagged += 1
+    # The rules summary states counts the app computed ("6 pieces of evidence"); only a
+    # model-written summary can invent a number.
+    missing = [] if brief.engine == "rules" else unsupported_numbers(brief.summary, list(evidence_texts.values()))
+    if missing:
+        brief.summary_guardian_flags.append(f"⚠ {', '.join(missing)} not in the evidence")
+        flagged += 1
+    return flagged
+
+
+def apply_guardrails(brief: CaseBrief, valid_ids: set[str],
+                     evidence_texts: dict[str, str] | None = None) -> CaseBrief:
     dropped_total, blocked = 0, 0
     for section in ("timeline", "parties", "injuries", "damages"):
         facts, dropped = enforce_citations(getattr(brief, section), valid_ids)
@@ -62,6 +160,28 @@ def apply_guardrails(brief: CaseBrief, valid_ids: set[str]) -> CaseBrief:
         brief.warnings.append(f"Removed {dropped_total} AI-generated statement(s) with no source evidence.")
     if blocked:
         brief.warnings.append(f"Blocked {blocked} statement(s) that read like legal advice or outcome predictions.")
+
+    kept = [f for section in ("timeline", "parties", "injuries", "damages") for f in getattr(brief, section)]
+    brief.checks.append({
+        "id": "sources", "name": "Sources", "status": "flag" if dropped_total else "pass",
+        "detail": f"{len(kept)} statements, each pointing to the evidence it came from."
+                  + (f" {dropped_total} with no source {'was' if dropped_total == 1 else 'were'} removed."
+                     if dropped_total else "")})
+    if evidence_texts is not None:
+        wrong = check_numbers(brief, evidence_texts)
+        if wrong:
+            brief.warnings.append(f"Flagged {wrong} statement(s) with a number that isn't in the evidence they cite.")
+        count = sum(len(_numbers(f.text)) for f in kept)
+        brief.checks.append({
+            "id": "numbers", "name": "Numbers", "status": "flag" if wrong else "pass",
+            "detail": (f"{wrong} statement{' contains' if wrong == 1 else 's contain'} a number its source "
+                       "doesn't have." if wrong else
+                       f"All {count} numbers (dates, times, amounts) appear in the evidence they cite.")})
+    brief.checks.append({
+        "id": "advice", "name": "Legal advice", "status": "flag" if blocked else "pass",
+        "detail": (f"{blocked} statement{'' if blocked == 1 else 's'} blocked for predicting an outcome, telling you what to do, "
+                   "or putting a value on the case." if blocked else
+                   "Nothing predicts an outcome, tells you what to do, or puts a value on the case.")})
     return brief
 
 
