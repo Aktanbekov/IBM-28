@@ -1,0 +1,17 @@
+kind: document
+title: San Jose Police Department collision report
+file: police_report_SJ-26-204417.pdf
+---
+San Jose Police Department Traffic Collision Report. Report number: SJ-26-204417. Date: October 14, 2026. Time: 08:53. Location: Story Road at McLaughlin Avenue, San Jose, CA 95111. Santa Clara County.
+
+Vehicle 1: 2022 Ford Explorer, white, license plate 8TRV015. The driver, his name is Chad Whitmore, DOB 05/19/1988, 774 Blossom Hill Rd, San Jose, CA 95123. Driver stated he did not see the pedestrian when making the right turn.
+
+Pedestrian: Nguyen Thi Bao, DOB 02/27/1953, 312 Senter Road, Apt 5, San Jose, CA 95111. Was crossing Story Road in the marked crosswalk. Pedestrian signal was in the WALK phase at the time of the collision per traffic-control camera log.
+
+Witness: Kevin Lam, (408) 555-0174. States the pedestrian had the walk signal and the vehicle turned without yielding.
+
+Injuries: Pedestrian transported by ambulance to Valley Medical Center with complaints of left hip pain and right shoulder pain. Driver reported no injuries.
+
+Narrative: Vehicle 1 was traveling westbound on McLaughlin Avenue and made a right turn onto Story Road. Vehicle struck the pedestrian who was in the marked crosswalk on Story Road. The pedestrian signal was in the WALK phase. Driver stated the sun was in his eyes.
+
+Insurance carrier for Vehicle 1: Coastal Shield Insurance, policy number CS-7723041.

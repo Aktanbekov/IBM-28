@@ -113,9 +113,13 @@ MARIA_SECRETS = ["Maria", "Lopez", "Kevin", "Holt", "Paula", "Grant", "555-0142"
 ROSA_SECRETS = ["Rosa", "María", "Martínez", "Martinez", "Luis", "Ortega", "Derek", "Shaw", "Brian",
                 "Cole", "Mehta", "555-0187", "555-0133", "555-0161", "4120 Peralta", "Apt 12", "94536",
                 "03/08/1984", "88213407", "HC-55190", "4417-2290-31"]
+BAO_SECRETS = ["Nguyen", "Bao", "Whitmore", "Chad", "Lam", "Patricia", "Vo", "Ellison",
+               "555-0174", "555-0162", "555-0193", "312 Senter", "Apt 5", "95111",
+               "02/27/1953", "05/19/1988", "30917452", "CS-7723041", "SJ-26-204417", "8TRV015"]
 
 
-@pytest.mark.parametrize("case,secrets", [("maria", MARIA_SECRETS), ("rosa", ROSA_SECRETS)])
+@pytest.mark.parametrize("case,secrets", [("maria", MARIA_SECRETS), ("rosa", ROSA_SECRETS),
+                                           ("bao", BAO_SECRETS)])
 def test_lawyer_view_has_no_personal_details(case, secrets):
     ev = ingest.load_demo_case(case)
     names = safety.find_names([e.text for e in ev])
@@ -190,6 +194,7 @@ def test_sentences_do_not_split_after_honorifics():
 def test_detect_languages():
     assert rules.detect_languages(ingest.load_demo_case("rosa")) == ["Spanish"]
     assert rules.detect_languages(ingest.load_demo_case("maria")) == ["Spanish", "English"]
+    assert rules.detect_languages(ingest.load_demo_case("bao")) == ["Vietnamese"]
     assert rules.detect_languages([Evidence("E1", "note", "note", "I was hit.")]) == ["English"]
 
 
@@ -214,3 +219,58 @@ def test_names_match_any_case_but_everyday_words_stay():
     names = {"Rosa Martinez": "[CLIENT]", "Will": "[PERSON]"}
     out = safety.redact("ROSA MARTINEZ said she will call. Will agreed.", names)
     assert out == "[CLIENT] said she will call. [PERSON] agreed."
+
+
+# --- third demo case: Bao, Vietnamese-speaking grandmother, pedestrian hit in San Jose ------
+
+def bao():
+    ev = ingest.load_demo_case("bao")
+    return ev, brief.build(ev)
+
+
+def test_bao_case_classified():
+    _, b = bao()
+    assert (b.case_type, b.client_side, b.county) == ("auto_accident", "plaintiff", "Santa Clara")
+    assert "Vietnamese" in b.languages
+    assert "English" not in b.languages
+
+
+def test_bao_rules():
+    _, b = bao()
+    # Police report and photos are present; medical records and witness contact are covered.
+    assert "Police / collision report" not in b.missing_evidence
+    assert "Photos of the scene or vehicles" not in b.missing_evidence
+    # Statute deadlines must be anchored to the October 14, 2026 incident date.
+    dates = {d["date"] for d in b.deadlines}
+    assert "2028-10-14" in dates                    # 2-year personal-injury deadline
+    # Release warning: insurer letter contains a release to sign.
+    assert any("release" in w for w in b.warnings)
+    # Insurer tactic alerts: recorded statement and no-lawyer-needed language.
+    alert_titles = {a["title"] for a in b.alerts}
+    assert "Recorded statement requested" in alert_titles
+    assert "Suggestion that a lawyer isn't needed" in alert_titles
+
+
+def test_bao_only_matches_vietnamese_lawyer():
+    ev, b = bao()
+    results, excluded = matching.match(b.case_type, b.client_side, b.county,
+                                       rules.detect_languages(ev))
+    # L4 Minh Tran is the only lawyer who speaks Vietnamese AND handles auto_accident plaintiff
+    # in Santa Clara County.
+    assert len(results) == 1
+    assert results[0]["id"] == "L4"
+    assert "Vietnamese" in results[0]["languages"]
+    assert excluded["language"] >= 1          # lawyers without Vietnamese were excluded
+
+
+def test_bao_lawyer_view_has_no_personal_details():
+    ev = ingest.load_demo_case("bao")
+    names = safety.find_names([e.text for e in ev])
+    red = safety.redact_brief(brief.build(ev), names)
+    assert safety.find_leaks(red, names) == []
+    for secret in BAO_SECRETS:
+        assert secret not in str(red), f"{secret!r} leaked into redacted brief"
+    # Stricter: raw evidence texts, each individually redacted, must not contain secrets.
+    raw = " ".join(safety.redact(e.text, names) for e in ev)
+    for secret in BAO_SECRETS:
+        assert secret not in raw, f"{secret!r} leaked from raw redacted evidence"

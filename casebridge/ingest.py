@@ -13,6 +13,7 @@ DEMO_DIR = DATA_DIR / "demo_case"
 DEMO_CASES = {
     "maria": DEMO_DIR,                       # rear-end crash, San Jose
     "rosa": DATA_DIR / "demo_case_rosa",     # slip and fall in a grocery store, Fremont
+    "bao": DATA_DIR / "demo_case_bao",       # pedestrian hit in crosswalk, San Jose
 }
 
 # Whisper language codes -> names used by matching (lawyers.json "languages").

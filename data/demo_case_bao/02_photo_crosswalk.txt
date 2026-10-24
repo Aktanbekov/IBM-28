@@ -1,0 +1,5 @@
+kind: photo
+title: Photo - crosswalk and intersection
+file: IMG_0834.jpg
+---
+Photo taken October 14, 2026 at 9:18 am at the intersection of Story Road and McLaughlin Avenue, San Jose. Shows pedestrian crosswalk markings on Story Road with walk signal illuminated. No visible skid marks on the road surface near the crosswalk.
