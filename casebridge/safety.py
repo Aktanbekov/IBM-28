@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from typing import Any
 
-from .models import CaseBrief, Fact
+from .models import CaseBrief, Evidence, Fact
 
 # The assistant organizes facts. It must never predict outcomes, value a case, or tell
 # the person what legal action to take.
@@ -70,37 +71,51 @@ def apply_guardrails(brief: CaseBrief, valid_ids: set[str]) -> CaseBrief:
 # $1M"). We never obey evidence. We flag it for the client and lawyer, and when evidence goes
 # to Granite it is fenced off as data (see wrap_evidence and brief.SYSTEM_PROMPT).
 
+# ---------------------------------------------------------------------------
+# Sub-expressions reused inside INJECTION_PATTERNS for readability.
+# ---------------------------------------------------------------------------
+_CANCEL_VERB   = r"(?:ignore|disregard|forget|override)"
+_SCOPE_WORD    = r"(?:previous|prior|above|earlier|all|your|these)"
+_INSTR_NOUN    = r"(?:instructions?|rules?|prompts?|guidelines?|directions?)"
+_AI_NOUN       = r"(?:AI|assistant|chatbot|language model|LLM|Granite)"
+_AI_ROLE       = r"(?:AI|assistant|chatbot|bot|model|lawyer|attorney|legal advisor|\w+ mode|DAN)"
+_LEGAL_ROLE    = r"(?:AI|assistant|lawyer|attorney|legal advisor)"
+_OUTPUT_VERB   = r"(?:must|should|will|do not|don't|ignore|say|write|tell|output|respond|answer)"
+_OUTCOME_CLAIM = r"(?:case is worth|will win|should (?:settle|sign|accept))"
+
 INJECTION_PATTERNS = [
-    # Attempts to cancel or replace the model's instructions.
-    r"\b(ignore|disregard|forget|override)\b.{0,40}\b(previous|prior|above|earlier|all|your|these)\b"
-    r".{0,20}\b(instructions?|rules?|prompts?|guidelines?|directions?)\b",
+    # "ignore/disregard/forget/override … previous … instructions"
+    rf"\b{_CANCEL_VERB}\b.{{0,40}}\b{_SCOPE_WORD}\b.{{0,20}}\b{_INSTR_NOUN}\b",
+    # "new system prompt", "updated instructions"
     r"\b(new|updated|real) (instructions?|system prompt)\b",
+    # bare "system prompt" anywhere in a document
     r"\bsystem prompt\b",
-    # Role-play and jailbreak phrasing.
-    r"\byou are (now|no longer) (an? |the |in )?(AI|assistant|chatbot|bot|model|lawyer|attorney|"
-    r"legal advisor|\w+ mode|DAN)\b",
-    r"\b(act|behave) as (an?|the|my) (AI|assistant|lawyer|attorney|legal advisor)\b",
+    # "you are now a lawyer / DAN / …"
+    rf"\byou are (now|no longer) (an? |the |in )?{_AI_ROLE}\b",
+    # "act as my legal advisor", "behave as an AI"
+    rf"\b(act|behave) as (an?|the|my) {_LEGAL_ROLE}\b",
+    # "pretend to be / you are / you're"
     r"\bpretend (to be|you are|you're)\b",
+    # jailbreak keywords
     r"\bjailbreak|\bdeveloper mode\b|\bDAN mode\b",
-    # Text addressed to an AI rather than to a person.
-    r"\b(AI|assistant|chatbot|language model|LLM|Granite)\s*[:,]?\s*(please\s+)?"
-    r"(must|should|will|do not|don't|ignore|say|write|tell|output|respond|answer)\b",
-    r"\b(say|write|state|tell the (user|client|lawyer)|output|respond with)\b.{0,40}"
-    r"\b(case is worth|will win|should (settle|sign|accept))",
+    # "AI: say …", "Granite, please output …"  — text addressed directly to the model
+    rf"\b{_AI_NOUN}\s*[:,]?\s*(?:please\s+)?{_OUTPUT_VERB}\b",
+    # "say / write / output … case is worth / will win"
+    rf"\b(say|write|state|tell the (?:user|client|lawyer)|output|respond with)\b.{{0,40}}\b{_OUTCOME_CLAIM}",
     # Chat-template tokens and role tags that have no business in a letter.
     r"<\|?(system|assistant|user|im_start|im_end)\|?>|\[/?INST\]|^\s*(system|assistant)\s*:",
-    # Spanish equivalents.
+    # Spanish equivalents: "ignora las instrucciones", "olvida tus reglas"
     r"\b(ignora|olvida|omite)\b.{0,40}\b(instrucciones|reglas)\b",
 ]
 INJECTION_RE = re.compile("|".join(f"(?:{p})" for p in INJECTION_PATTERNS), re.I | re.M)
 
 
-def injection_flags(evidence) -> list[str]:
+def injection_flags(evidence: list[Evidence]) -> list[str]:
     """Ids of evidence items that contain text trying to instruct an AI."""
     return [e.id for e in evidence if INJECTION_RE.search(e.text)]
 
 
-def injection_warnings(evidence) -> list[str]:
+def injection_warnings(evidence: list[Evidence]) -> list[str]:
     """One plain-language warning per flagged evidence item, for the brief's warnings list."""
     return [f"[{eid}] contains text that tries to give instructions to an AI. CaseBridge ignored "
             "those instructions and treated the item as evidence only. A lawyer may want to see it."
@@ -122,38 +137,95 @@ def wrap_evidence(evidence_id: str, kind: str, title: str, text: str) -> str:
 # Pattern-based, and tuned to fail closed: when unsure, hide it. Lawyers only see the real
 # brief after the client accepts them.
 
+# ---------------------------------------------------------------------------
+# Building blocks for name and date patterns.
+# _UP / _LO are Unicode-aware upper/lowercase ranges used in every name regex.
+# ---------------------------------------------------------------------------
 _UP, _LO = "A-ZÀ-ÖØ-Þ", "a-zß-öø-ÿ"
-_WORD = rf"[{_UP}](?:['’][{_UP}])?[{_LO}]+(?:[-'’][{_UP}]?[{_LO}]+)*"   # also O'Brien, Smith-Jones
-NAME = rf"({_WORD}(?:\s{_WORD}){{0,2}})"          # "Maria Lopez", "Rosa María Martínez"
-_DATE = (r"(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2}|"
-         r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
-         r"\s+\d{1,2},?\s+\d{4})")
 
-PII_PATTERNS = [  # (regex, replacement); order matters: specific before generic
-    (re.compile(r"-?\b\d{1,3}\.\d{3,},\s*-?\d{1,3}\.\d{3,}\b"), "[LOCATION]"),   # GPS "37.3230, -121.9480"
+# One capitalised word, optionally containing an internal apostrophe or hyphen.
+# Covers: "Lopez", "O'Brien", "Smith-Jones", "García".
+_WORD = rf"[{_UP}](?:[''][{_UP}])?[{_LO}]+(?:[-''][{_UP}]?[{_LO}]+)*"
+
+# A full name: one to three _WORD tokens separated by spaces.
+# Captures: "Maria", "Maria Lopez", "Rosa María Martínez".
+NAME = rf"({_WORD}(?:\s{_WORD}){{0,2}})"
+
+# A date in any of three common formats:
+#   numeric:   01/15/2026  or  2026-01-15
+#   long form: January 15, 2026
+_DATE = (r"(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}"   # numeric short:  MM/DD/YY(YY)
+         r"|\d{4}-\d{2}-\d{2}"                   # ISO:            YYYY-MM-DD
+         r"|(?:January|February|March|April|May|June|July|August|September|October|November|December)"
+         r"\s+\d{1,2},?\s+\d{4})")               # long form:      Month D, YYYY
+
+# ---------------------------------------------------------------------------
+# Reusable sub-expressions for PII_PATTERNS.
+# ---------------------------------------------------------------------------
+
+# Digit word in English or Spanish (used for spelled-out phone numbers).
+_DIGIT_WORD = (r"(?:zero|oh|one|two|three|four|five|six|seven|eight|nine"
+               r"|cero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)")
+
+# Street-type suffixes recognised in address patterns.
+_STREET_SUFFIX = (r"(?:St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Ln|Lane|Way"
+                  r"|Ct|Court|Blvd|Boulevard|Pl|Place|Ter|Terrace"
+                  r"|Pkwy|Parkway|Hwy|Highway|Cir|Circle)")
+
+# Keywords that precede a policy / claim / record number.
+_ID_KEYWORD = (r"(?i:policy|claim|member|account|MRN|medical record"
+               r"|driver'?s license|DL|report|incident|reference|ref)")
+
+PII_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # order matters: most specific patterns first so they win over generic ones
+
+    # GPS coordinates: "37.3230, -121.9480"
+    (re.compile(r"-?\b\d{1,3}\.\d{3,},\s*-?\d{1,3}\.\d{3,}\b"), "[LOCATION]"),
+
+    # Email address
     (re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.]+\b"), "[EMAIL]"),
+
+    # Date of birth preceded by a label: "DOB: 03/08/1984", "born on January 3, 2000"
     (re.compile(rf"\b(DOB|D\.O\.B\.|[Dd]ate of birth|[Bb]orn(?: on)?|[Ff]echa de nacimiento|"
                 rf"[Nn]acid[oa] el)\s*[:\-]?\s*{_DATE}"), r"\1 [REDACTED]"),
+
+    # SSN: 3-2-4 digit groups separated by dashes
     (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN]"),
+
+    # Full 10-digit phone (optional +1 / country code), various separators
     (re.compile(r"(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\b\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b"), "[PHONE]"),
-    (re.compile(r"\b\d{3}\s*[.-]\s*\d{4}\b"), "[PHONE]"),                 # 555-0142, 555 - 0142
-    (re.compile(r"\b(?:(?:zero|oh|one|two|three|four|five|six|seven|eight|nine|cero|uno|dos|tres|"
-                r"cuatro|cinco|seis|siete|ocho|nueve)[\s,-]+){6,}"
-                r"(?:zero|oh|one|two|three|four|five|six|seven|eight|nine|cero|uno|dos|tres|cuatro|"
-                r"cinco|seis|siete|ocho|nueve)\b", re.I), "[PHONE]"),          # spelled-out digits
+
+    # 7-digit fragment: "555-0142", "555 - 0142"
+    (re.compile(r"\b\d{3}\s*[.-]\s*\d{4}\b"), "[PHONE]"),
+
+    # Phone spelled out in words: "five five five zero one four two" (≥7 digit-words)
+    (re.compile(rf"\b(?:{_DIGIT_WORD}[\s,-]+){{6,}}{_DIGIT_WORD}\b", re.I), "[PHONE]"),
+
+    # VIN: 17-char alphanumeric excluding I, O, Q
     (re.compile(r"\b[A-HJ-NPR-Z0-9]{17}\b"), "[VIN]"),
-    (re.compile(r"\b\d[A-Z]{3}\d{3}\b"), "[PLATE]"),                      # California plate
+
+    # California plate: digit + 3 letters + 3 digits  e.g. "7ABC123"
+    (re.compile(r"\b\d[A-Z]{3}\d{3}\b"), "[PLATE]"),
+
+    # Plate preceded by a label: "Plate: 7ABC123", "License plate no. XYZ"
     (re.compile(r"\b([Pp]late|[Pp]laca|[Ll]icense plate)(\s*(?:no\.?|number|#))?\s*[:#]?\s*[A-Z0-9-]{2,8}\b"),
      r"\1 [PLATE]"),
+
+    # Police / collision report number: two letters, dash, two digits, dash, 4+ digits
     (re.compile(r"\b[A-Z]{2}-\d{2}-\d{4,}\b"), "[REPORT #]"),
-    (re.compile(r"\b((?i:policy|claim|member|account|MRN|medical record|driver'?s license|DL|report|"
-                r"incident|reference|ref)(?:\s*(?i:no\.?|number|#))?)\s*[:#]?\s*(?=[A-Z0-9-]*\d)[A-Z0-9][A-Z0-9-]{3,}\b"),
+
+    # Policy / claim / MRN / DL number preceded by a keyword label
+    (re.compile(rf"\b({_ID_KEYWORD}(?:\s*(?i:no\.?|number|#))?)\s*[:#]?\s*(?=[A-Z0-9-]*\d)[A-Z0-9][A-Z0-9-]{{3,}}\b"),
      r"\1 [ID]"),
-    (re.compile(r"\b\d{1,6}\s+(?:[NSEW]\.?\s+)?[A-Z][a-z]+(?:\s[A-Z][a-z]+)*\s"
-                r"(?:St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Ln|Lane|Way|Ct|Court|Blvd|Boulevard|Pl|Place|"
-                r"Ter|Terrace|Pkwy|Parkway|Hwy|Highway|Cir|Circle)\b\.?"
+
+    # Street address: house number + optional direction + street name + suffix + optional unit
+    (re.compile(rf"\b\d{{1,6}}\s+(?:[NSEW]\.?\s+)?[A-Z][a-z]+(?:\s[A-Z][a-z]+)*\s{_STREET_SUFFIX}\b\.?"
                 r"(?:,?\s*(?:Apt|Apartment|Unit|Suite|Ste|#)\.?\s*\w+)?"), "[ADDRESS]"),
+
+    # Unit-only: "Apt 4", "Unit #12B"
     (re.compile(r"\b(?:Apt|Apartment|Unit)\.?\s*#?\s*\d+\w?\b"), "[ADDRESS]"),
+
+    # California ZIP code, optionally with +4 extension
     (re.compile(r"\b(CA|California)\s+\d{5}(?:-\d{4})?\b"), r"\1 [ZIP]"),
 ]
 
@@ -173,8 +245,12 @@ ROLE_PATTERNS = [
                   rf"(?:Sincerely|Regards|Atentamente),?\s+{NAME}"]),
 ]
 # Speech-to-text can drop capitals: "my name is rosa martinez". Only unambiguous cues here.
-LOWER_INTRO_RE = re.compile(r"(?i:my name is|me llamo|mi nombre es|patient:|nombre:)\s+"
-                            rf"([{_LO}'’-]+(?:\s[{_LO}'’-]+){{0,2}})")
+# Captures up to three lowercase name tokens after the intro phrase.
+LOWER_INTRO_RE = re.compile(
+    r"(?i:my name is|me llamo|mi nombre es|patient:|nombre:)\s+"
+    rf"([{_LO}''-]+"           # first name token (lowercase, may contain ' or -)
+    rf"(?:\s[{_LO}''-]+){{0,2}})"  # up to two more tokens
+)
 INTRO_STOP = {"and", "y", "i", "im", "my", "from", "de", "del", "la", "el", "is", "es", "but", "pero",
               "so", "and", "the", "a", "was", "fui", "estaba", "soy", "am", "me", "mi", "tengo"}
 # Names that are also everyday words: replaced only when capitalized, to keep the brief readable.
@@ -236,12 +312,14 @@ def redact(text: str, names: dict[str, str]) -> str:
     return re.sub(r"(\[[A-Z #]+\])(?:\s+\1)+", r"\1", text)   # "[CLIENT] [CLIENT]" -> "[CLIENT]"
 
 
-def find_leaks(data, names: dict[str, str]) -> list[str]:
+def find_leaks(data: Any, names: dict[str, str]) -> list[str]:
     """Final check on anything a lawyer will see: list every known name or PII pattern still present."""
     blob = str(data)
     leaks = [n for n in names if _name_re(n).search(blob)]
     for rx, _ in PII_PATTERNS:
+        # Skip matches that are already inside a placeholder (e.g. "[PHONE]").
         leaks += [m.group(0) for m in rx.finditer(blob) if "[" not in m.group(0)]
+    # Deduplicate and drop sub-strings already covered by a longer match.
     return [x for i, x in enumerate(leaks) if x not in leaks[:i] and not any(x in y for y in leaks if y != x)]
 
 
@@ -251,7 +329,7 @@ HIDDEN_STATEMENT = "[Statement hidden to protect the client's identity]"
 _FIXED = {"case_type", "client_side", "county", "engine", "languages", "date", "sources"}
 
 
-def _redact_all(value, names, key=None):
+def _redact_all(value: Any, names: dict[str, str], key: str | None = None) -> Any:
     if key in _FIXED:
         return value
     if isinstance(value, str):
