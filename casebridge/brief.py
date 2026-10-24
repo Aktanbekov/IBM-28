@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import llm, rules, safety
 from .models import CaseBrief, Evidence, Fact, PRACTICE_AREAS
-from .safety import apply_guardrails, injection_warnings, wrap_evidence
+from .safety import apply_guardrails, injection_flags, injection_warnings, wrap_evidence
 
 # Risk definition for the groundedness check (llm.guardian_check uses Guardian's own wording).
 GROUNDEDNESS_RISK = (
@@ -53,6 +53,25 @@ def evidence_block(evidence: list[Evidence]) -> str:
     return "\n\n".join(wrap_evidence(e.id, e.kind, e.title, e.text) for e in evidence)
 
 
+# A "when" must name a time ("October 3", "5:40 pm", "that night"), not a place or "Unknown".
+_WHEN_RE = re.compile(r"\d|\b(January|February|March|April|May|June|July|August|September|October|November|"
+                      r"December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|Monday|Tuesday|Wednesday|"
+                      r"Thursday|Friday|Saturday|Sunday|morning|afternoon|evening|night|noon|midnight|today|"
+                      r"yesterday|tonight|week|month|year|later|earlier|before|after)\b", re.I)
+_NO_WHEN_RE = re.compile(r"^\s*(unknown|unspecified|not (?:stated|specified|given|known)|n/?a|none|tbd|-+)\b", re.I)
+# Statements about the evidence itself ("The client received a written note from themselves"), not the case.
+_META_RE = re.compile(r"\b(received|wrote|sent|uploaded|recorded|submitted|provided)\b.{0,40}"
+                      r"\b(note|memo|recording|message|evidence|file|transcript)\b|\bfrom (themselves|himself|herself)\b",
+                      re.I)
+
+
+def _when(value) -> str | None:
+    if not isinstance(value, (str, int, float)):
+        return None
+    text = str(value).strip()
+    return text if text and _WHEN_RE.search(text) and not _NO_WHEN_RE.match(text) else None
+
+
 def _facts(items) -> list[Fact]:
     """Facts from model output, coerced to the expected types: the model's JSON is steerable by
     text hidden in evidence, so a list where a string belongs must not crash the brief or the app."""
@@ -64,9 +83,10 @@ def _facts(items) -> list[Fact]:
             continue
         sources = i.get("sources")
         sources = [sources] if isinstance(sources, str) else sources if isinstance(sources, list) else []
-        when = i.get("when")
-        facts.append(Fact(text=str(i.get("text", "")), sources=[s for s in sources if isinstance(s, str)],
-                          when=str(when) if isinstance(when, (str, int, float)) and str(when).strip() else None))
+        text = str(i.get("text", ""))
+        if _META_RE.search(text):
+            continue
+        facts.append(Fact(text=text, sources=[s for s in sources if isinstance(s, str)], when=_when(i.get("when"))))
     return facts
 
 
@@ -172,17 +192,42 @@ def _apply_guardian(brief: CaseBrief, evidence: list[Evidence], checker: str = "
                      "in the brief, marked, for you and your lawyer to judge." if flagged else "All supported.")})
 
 
+def _drop_flagged_sources(brief: CaseBrief, flagged: set[str]) -> None:
+    """Evidence that tries to instruct an AI is never a source: its id is removed from every
+    statement, and a statement left with no other source is removed."""
+    if not flagged:
+        return
+    removed = 0
+    for section in _SECTIONS:
+        kept = []
+        for f in getattr(brief, section):
+            clean = [s for s in f.sources if s not in flagged]
+            if f.sources and not clean:
+                removed += 1
+                continue
+            f.sources = clean
+            kept.append(f)
+        setattr(brief, section, kept)
+    ids = ", ".join(sorted(flagged, key=lambda i: int(i[1:]) if i[1:].isdigit() else 0))
+    brief.checks.append({"id": "injection", "name": "Hidden instructions", "status": "flag",
+                         "detail": f"[{ids}] tries to give instructions to an AI. It was not sent to Granite, and "
+                                   f"nothing in it is used as a fact." + (f" {removed} statement"
+                                   f"{' was' if removed == 1 else 's were'} left out." if removed else "")})
+
+
 def build(evidence: list[Evidence], use_llm: bool = True) -> CaseBrief:
     brief = rules.build_brief(evidence)
     rules_summary = brief.summary   # written from counts and evidence, kept in case Granite's fails a check
     brief.languages = rules.detect_languages(evidence)
-    # Flag evidence that tries to instruct an AI. Shown in both offline and Granite mode.
+    # Flag evidence that tries to instruct an AI. Shown in both offline and Granite mode. Flagged items
+    # are never sent to Granite and never become a fact or a quote; only the warning card remains.
     brief.warnings += injection_warnings(evidence)
+    flagged = set(injection_flags(evidence))
 
     backend = llm.backend() if use_llm else "rules"
     if backend != "rules":
         try:
-            data = llm.chat_json(SYSTEM_PROMPT, evidence_block(evidence))
+            data = llm.chat_json(SYSTEM_PROMPT, evidence_block([e for e in evidence if e.id not in flagged]))
             if not isinstance(data, dict):
                 raise ValueError("model reply is not a JSON object")
             if isinstance(data.get("summary"), str) and data["summary"].strip():
@@ -202,6 +247,8 @@ def build(evidence: list[Evidence], use_llm: bool = True) -> CaseBrief:
             brief.engine = backend
         except Exception as exc:  # never let the demo die on a model hiccup
             brief.warnings.append(f"LLM unavailable ({type(exc).__name__}); used rule-based extraction.")
+
+    _drop_flagged_sources(brief, flagged)
 
     # Second-model fact check. Local Granite Guardian also checks a rules-built brief: it needs no network.
     checker = llm.checker() if use_llm else None
