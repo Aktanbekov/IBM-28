@@ -338,6 +338,9 @@ if page.startswith("1"):
         if st.button("Load demo case (Rosa)", icon=":material/folder_open:"):
             ss.evidence = ingest.load_demo_case("rosa")
             ss.brief = None
+        if st.button("Load demo case (Bao)", icon=":material/folder_open:"):
+            ss.evidence = ingest.load_demo_case("bao")
+            ss.brief = None
         if st.button("Clear", icon=":material/restart_alt:", type="tertiary"):
             ss.evidence, ss.brief = [], None
 
@@ -512,7 +515,7 @@ elif page.startswith("3"):
         st.stop()
 
     results, excluded = matching.match(b.case_type, b.client_side, b.county or None, b.languages)
-    lead(f"Showing {len(results)} lawyers who handle {PRACTICE_AREAS[b.case_type].lower()} cases for "
+    lead(f"Showing {len(results)} lawyer{'' if len(results) == 1 else 's'} who handle{'s' if len(results) == 1 else ''} {PRACTICE_AREAS[b.case_type].lower()} cases for "
          f"{SIDE_PLAIN[b.client_side]}.")
     meta(f"Hidden: {excluded['practice_area']} with a different practice area, {excluded['side']} who only "
          "represent the other side"
