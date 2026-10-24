@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from concurrent.futures import ThreadPoolExecutor
 
-from . import llm, rules
+from . import llm, rules, safety
 from .models import CaseBrief, Evidence, Fact, PRACTICE_AREAS
 from .safety import apply_guardrails, injection_warnings, wrap_evidence
 
@@ -158,8 +158,8 @@ def _apply_guardian(brief: CaseBrief, evidence: list[Evidence], checker: str = "
         if result is None:
             fact.guardian_flags.append("Not checked")
     if flagged:
-        brief.warnings.append(f"Fact check ({checker}) flagged {flagged} statement(s) not supported by the "
-                              "evidence they cite and set them aside, out of the brief.")
+        brief.warnings.append(f"Fact check ({checker}) flagged {flagged} statement(s) for review "
+                              "(may not be supported by the evidence they cite). They stay in the brief, marked.")
     else:
         brief.warnings.append(f"Fact check ({checker}): every statement is supported by its evidence.")
     brief.checks.append({
@@ -168,7 +168,8 @@ def _apply_guardian(brief: CaseBrief, evidence: list[Evidence], checker: str = "
                    "from your evidence. " if quotes else "")
                   + f"A second IBM model, {where}, read the {len(facts)} reworded "
                   f"statement{'' if len(facts) == 1 else 's'} against the evidence they cite. "
-                  + (f"{flagged} not supported, so set aside (listed below)." if flagged else "All supported.")})
+                  + (f"{flagged} marked for a second look. A model can misjudge rewording, so they stay "
+                     "in the brief, marked, for you and your lawyer to judge." if flagged else "All supported.")})
 
 
 def build(evidence: list[Evidence], use_llm: bool = True) -> CaseBrief:
@@ -215,10 +216,11 @@ def build(evidence: list[Evidence], use_llm: bool = True) -> CaseBrief:
                                        "The other checks always run."})
 
     brief = apply_guardrails(brief, {e.id for e in evidence}, {e.id: e.text for e in evidence})
-    # A model-written summary that failed a check (a claim, number or fault word the evidence doesn't
-    # support) is replaced by the summary built from the evidence, rather than shown with a mark.
-    if any(f.startswith("⚠") for f in brief.summary_guardian_flags):
-        brief.summary, brief.summary_guardian_flags = rules_summary, []
+    # A model-written summary with a number or fault word the evidence doesn't contain is replaced by
+    # the summary built from the evidence. A fact-check doubt alone only marks it.
+    if any(safety.is_exact_flag(f) for f in brief.summary_guardian_flags):
+        brief.summary = rules_summary
+        brief.summary_guardian_flags = []   # the flags were about Granite's summary, not this one
         brief.warnings.append("Granite's summary said something the evidence doesn't support, so the "
                               "summary above was written from your evidence instead.")
         brief.checks.append({"id": "summary", "name": "Summary", "status": "flag",

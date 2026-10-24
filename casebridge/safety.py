@@ -225,15 +225,23 @@ def check_conclusions(brief: CaseBrief, evidence_texts: dict[str, str]) -> int:
     return flagged
 
 
+def is_exact_flag(flag: str) -> bool:
+    """A flag from a check that can't be wrong about what it found: a number or a fault word that is
+    not in the cited text. The AI fact check ("Not grounded") is a model's opinion: it marks a
+    statement, it never removes one (on watsonx it rejected plainly supported rewordings)."""
+    flag = str(flag)
+    return flag.startswith("⚠") and "not grounded" not in flag.lower()
+
+
 def _set_aside_flagged(brief: CaseBrief) -> list[dict]:
-    """Move every statement a check marked unsupported (a flag starting with ⚠: the fact check,
-    the numbers check, the fault-words check) out of the brief. They never reach the brief's
+    """Move every statement an exact check marked unsupported (the numbers check, the fault-words
+    check; see is_exact_flag) out of the brief. They never reach the brief's
     lists, its counts or the lawyer board; the UI lists them under How it was checked."""
     removed = []
     for section in ("timeline", "parties", "injuries", "damages"):
         kept = []
         for f in getattr(brief, section):
-            reasons = [r for r in f.guardian_flags if str(r).startswith("⚠")]
+            reasons = [r for r in f.guardian_flags if is_exact_flag(r)]
             if reasons:
                 removed.append({"section": section, "text": f.text, "sources": list(f.sources), "when": f.when,
                                 "reasons": [r.removeprefix("⚠").strip() for r in reasons]})
