@@ -400,8 +400,9 @@ def show_checks(b, ev_by_id: dict):
     checker = llm.checker()
     writer = "rules on this computer" if b.engine == "rules" else f"IBM Granite ({llm.model_name()}) via {b.engine}"
     foot = (f"<b>Written by</b> {esc(writer)}. <b>Checked by</b> rules"
-            + (f" and {esc(checker)}" if checker else "") + ". A statement a check finds unsupported is set "
-            "aside and listed here, so you can see what was left out and why.")
+            + (f" and {esc(checker)}" if checker else "") + ". A number or fault word that isn't in the evidence "
+            "gets its statement set aside and listed here. A statement the AI fact check doubts stays in the "
+            "brief, marked, so you and your lawyer decide.")
     aside = next((c.get("items", []) for c in checks if c["id"] == "set_aside"), [])
     aside_html = ('<ul class="cb-list">' + "".join(
         f'<li><span><span class="cb-removed">{esc(i["text"])}</span> {"".join(tag(s) for s in i["sources"])}'
@@ -838,7 +839,9 @@ elif page.startswith("2"):
     status, _ = engine_status(b.engine)
     st.html('<div class="cb-trust">'
             f'<span><b>{stats["facts_cited"]} of {stats["facts"]}</b> statements cite your evidence</span>'
-            + (f'<span><b>{stats["set_aside"]}</b> set aside as unsupported</span>' if stats["set_aside"] else "") +
+            + (f'<span><b>{stats["set_aside"]}</b> set aside as unsupported</span>' if stats["set_aside"] else "")
+            + (f'<span><b>{stats["fact_check_flagged"]}</b> marked for a second look</span>'
+               if stats["fact_check_flagged"] else "") +
             f'<span><b>{stats["advice_given"]}</b> read as legal advice</span>'
             f'<span><b>{stats["details_hidden"]}</b> personal details hidden from lawyers</span>'
             f'<span><b>{stats["hidden_instructions"]}</b> hidden instructions</span></div>'
