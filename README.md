@@ -7,9 +7,9 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-24 01:53 (commit `77e335f`) |
-| Tests | passing (607 passed) |
-| Commits | 120 |
+| Last updated | 2026-10-24 02:01 (commit `807bf5a`) |
+| Tests | passing (622 passed) |
+| Commits | 124 |
 | Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Nurislam, Shahzod Bakhriev |
 <!-- AUTO:STATUS:END -->
 
@@ -159,6 +159,8 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 
 | Date | Author | Change |
 |---|---|---|
+| 2026-10-24 | Claude | ui: show first-person lines as quotes with who said them |
+| 2026-10-24 | Claude | ai: keep blocked evidence out of Granite and the brief; drop place-as-date and meta statements |
 | 2026-10-24 | Claude | ai: tell the watsonx checker an unreported injury or damage is a new fact |
 | 2026-10-24 | Claude | safety: set aside statements that mention an injury or damage the evidence doesn't |
 | 2026-10-24 | Claude | ui: show statements marked for a second look in the trust strip |
@@ -168,6 +170,4 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 | 2026-10-24 | Claude | ai: attribute claims in the prompt, rebuild a failing summary, retry watsonx rate limits |
 | 2026-10-24 | Claude | safety: set aside statements a check rejects, flag fault words the evidence doesn't use |
 | 2026-10-24 | Aktanbekov | ui: calmer brief, lawyer list and portal; one Granite build at a time |
-| 2026-10-24 | Claude | ai: show IBM's error body when the watsonx chat self-check fails |
-| 2026-10-23 | Aktanbekov | Shared lawyer database, delete my case, data panel, Granite tuned on a real run |
 <!-- AUTO:CHANGELOG:END -->
