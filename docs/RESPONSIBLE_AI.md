@@ -221,7 +221,8 @@ dates.
 
 A later security sweep found and fixed 31 advice phrasings the guardrail missed ("you'll win",
 "I'd take the money"), 15 more redaction leaks (family members' names, names in capitals,
-"Officer J. Ramirez", social media handles, spaced plates), hidden instructions in file names,
+"Officer J. Ramirez", social media handles, spaced plates), names with no cue around them
+("Kevin said…", now caught with common first-name and surname lists), hidden instructions in file names,
 model replies with the wrong JSON types that crashed the brief, and damaged PDFs that crashed
 the app. See [`tests/test_security_sweep.py`](../tests/test_security_sweep.py).
 
@@ -232,4 +233,4 @@ What is still open:
   discovery, the lawsuit deadline after a government claim is rejected) are not handled. Every
   date is labelled "confirm with a lawyer". See [`docs/LEGAL_RULES.md`](LEGAL_RULES.md).
 
-Current suite: **569 passed, 0 xfailed, 0 failed** (`pytest -q`).
+Current suite: **581 passed, 0 xfailed, 0 failed** (`pytest -q`).

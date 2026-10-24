@@ -445,6 +445,68 @@ def _plain(s: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
 
 
+# Names with no cue around them ("Kevin said he was sorry") are caught by common first names and
+# surnames (US, Spanish, Vietnamese, Chinese, Korean, Indian). Words that are also everyday English
+# ("Will", "Brown", "Young", "Do", "Long") are left out on purpose. Over-hiding is the safe side.
+FIRST_NAMES = set("""
+Aaron Adam Adrian Ahmed Aisha Alan Albert Alberto Alejandra Alejandro Alex Alexander Alexis Alfredo Alice
+Alicia Alma Amanda Amber Amir Amit Amy Ana Anand Andrea Andres Andrew Angela Angelica Anh Anita Ann Anna
+Anthony Antonio Arjun Armando Arturo Ashley Barbara Benjamin Beatriz Betty Blanca Bao Brandon Brenda Brian
+Brittany Bryan Camila Carlos Carmen Carol Carolina Catherine Cesar Chad Charles Cheng Chris Christian
+Christina Christine Christopher Cindy Claudia Cristina Cynthia Daniel Daniela David Deborah Debra Denise
+Dennis Derek Diana Diego Donald Donna Dorothy Douglas Duc Dung Edgar Eduardo Edward Elena Elizabeth Emily
+Emma Enrique Eric Erica Erik Ernesto Esther Eugene Evelyn Fatima Fernando Francisco Gabriel Gabriela Gary
+George Gerardo Gloria Gonzalo Gregory Guadalupe Guillermo Gustavo Hai Hannah Hao Harold Heather Hector
+Helen Hieu Hoa Hung Hyun Isabel Ivan Jacob Jaime Jake James Jamal Jasmine Jason Javier Jeffrey Jennifer
+Jeremy Jesse Jessica Jesus Ji Jia Jin Joanna Joel John Jonathan Jorge Jose Joseph Joshua Joyce Juan Juana
+Judith Julia Julian Julie Justin Karen Katherine Kathleen Kathryn Kayla Kelly Kenneth Kevin Kim Kimberly
+Krishna Kyle Larry Laura Lauren Leticia Lina Linda Lisa Lucia Luis Luz Madison Manuel Marco Marcos
+Margaret Maria Mariana Marie Marisol Marta Martha Martin Mary Matthew Megan Melissa Mia Michael Michelle
+Miguel Min Minh Mohammed Monica Nancy Natalia Nathan Nicholas Nicole Noah Olga Olivia Omar Oscar Pablo
+Pamela Patricia Patrick Paul Paula Pedro Peter Phuong Pooja Priya Rachel Rafael Rahul Rajesh Ramon Raul
+Rebecca Ricardo Richard Roberto Robert Rocio Rodrigo Ronald Rosa Ruth Ryan Samantha Samuel Sandra Sara
+Sarah Scott Sean Sergio Sharon Shirley Silvia Sofia Sonia Stephanie Stephen Steven Sunil Susan Teresa
+Thanh Thao Thomas Timothy Tuan Tyler Valeria Vanessa Veronica Vikram Virginia Walter Wei William Xiao
+Yesenia Yolanda Yong Yuki Zachary
+""".split())
+SURNAMES = set("""
+Acosta Aguilar Alvarado Alvarez Anderson Bui Castillo Castro Chavez Chen Cho Choi Cruz Dang Diaz Dinh
+Dominguez Duong Ellison Espinoza Estrada Flores Garcia Gomez Gonzales Gonzalez Gupta Gutierrez Guzman
+Hernandez Herrera Hoang Holt Huang Huynh Jackson Jimenez Johnson Juarez Kang Kumar Lam Lee Li Lin Liu
+Lopez Luna Martinez Mehta Mendez Mendoza Molina Morales Moreno Munoz Ngo Nguyen Ortega Ortiz Patel
+Pena Perez Pham Phan Ramirez Ramos Reyes Rios Rivera Rodriguez Romero Ruiz Salazar Sanchez Sandoval Shah
+Sharma Silva Singh Smith Soto Suarez Thompson Torres Tran Trinh Truong Vargas Vasquez Vazquez Vega
+Vo Vu Wang Whitmore Williams Wilson Wong Wu Yang Zhang Zhao
+""".split())
+# Place names built on a person's name ("San Jose", "Santa Clara", "Stevens Creek Blvd").
+_PLACE_BEFORE = re.compile(r"(?:San|Santa|Santo|St\.?|Saint|Mount|Mt\.?|Fort|Lake|Port|Los|Las|El)\s+$")
+_PLACE_AFTER = re.compile(r"\s+(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Ln|Lane|Way|Ct|Court|"
+                          r"Pl|Place|Creek|Park|Center|Centre|Hospital|Medical|Clinic|Market|Insurance|Mutual|"
+                          r"County|City|Police|School|University|College|Bank|Plaza|Mall|Expressway|Freeway)\b")
+_CAP_WORD_RE = re.compile(rf"(?<![\w\[]){_WORD}")
+_NEXT_WORD_RE = re.compile(rf"[ \t]+({_WORD})")
+
+
+def _dictionary_names(text: str) -> list[str]:
+    """Names with no cue, from the first-name and surname lists: "Kevin Holt", "Kevin", "Nguyen"."""
+    found = []
+    for m in _CAP_WORD_RE.finditer(text):
+        word = m.group(0)
+        if word not in FIRST_NAMES and _plain(word) not in SURNAMES:
+            continue
+        if _PLACE_BEFORE.search(text[max(0, m.start() - 8):m.start()]) or _PLACE_AFTER.match(text, m.end()):
+            continue
+        # Up to two more capitalized words belong to the name: "Kevin Holt said", "Tran Van Minh".
+        end = m.end()
+        for _ in range(2):
+            nxt = _NEXT_WORD_RE.match(text, end)
+            if not nxt or nxt.group(1) in NOT_NAMES or _PLACE_AFTER.match(text, nxt.end()):
+                break
+            word, end = f"{word} {nxt.group(1)}", nxt.end()
+        found.append(word)
+    return found
+
+
 def find_names(texts: list[str]) -> dict[str, str]:
     """Map each detected person name, its parts and its unaccented spelling to a role placeholder."""
     joined = "\n".join(texts)
@@ -465,6 +527,8 @@ def find_names(texts: list[str]) -> dict[str, str]:
             words.append(w)
         if words:
             names.setdefault(" ".join(words).title(), "[CLIENT]")
+    for name in _dictionary_names(joined):
+        names.setdefault(name, "[PERSON]")
     # Also catch first-name-only and surname-only mentions ("Maria said", "Ms. Lopez").
     for full, role in list(names.items()):
         for part in full.split():

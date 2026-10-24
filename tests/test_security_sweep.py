@@ -158,3 +158,39 @@ def test_non_object_model_reply_falls_back_to_rules(monkeypatch):
 def test_damaged_pdf_returns_a_placeholder(data):
     pytest.importorskip("pypdf")
     assert ingest.pdf_text(data).startswith("[")
+
+
+# --- Names with no cue around them ------------------------------------------------------------
+
+@pytest.mark.parametrize("text,secret", [
+    ("Kevin said he was sorry.", "Kevin"), ("Then Luis Ortega came over.", "Ortega"),
+    ("Nguyen was crossing the street.", "Nguyen"), ("Tran Van Minh was the driver.", "Minh"),
+    ("Garcia and Lee were there.", "Lee"), ("On October 3 Kevin Holt hit my car.", "Holt"),
+])
+def test_name_without_a_cue_is_hidden(text, secret):
+    assert secret not in redact(text, find_names([text]))
+
+
+@pytest.mark.parametrize("text", [
+    "I live in San Jose near Santa Clara.", "We drove on Stevens Creek Blvd past Valley Medical Center.",
+    "Jackson Street was closed.", "Do not drive. Long wait at the ER.", "Park in the lot.",
+])
+def test_places_and_everyday_words_are_not_names(text):
+    assert redact(text, find_names([text])) == text
+
+
+def test_watsonx_api_key_is_form_encoded(monkeypatch):
+    sent = {}
+
+    class Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'{"access_token": "t", "expires_in": 3600}'
+
+    def fake_urlopen(req, timeout):
+        sent["body"] = req.data
+        return Resp()
+
+    monkeypatch.setattr(llm.urllib.request, "urlopen", fake_urlopen)
+    llm._post("https://example.invalid/token", {"apikey": "a+b&c=d"}, form=True)
+    assert sent["body"] == b"apikey=a%2Bb%26c%3Dd"
