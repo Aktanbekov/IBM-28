@@ -16,7 +16,7 @@ CASE_KEYWORDS = {
     "premises": ["slipped", "slip", "fell", "wet floor", "store", "stairs", "premises"],
     "dog_bite": ["dog", "bite", "bit me"],
     "workplace": ["at work", "my employer", "on the job", "workers comp", "forklift"],
-    "medical": ["surgery", "misdiagnos", "doctor made", "malpractice", "wrong medication"],
+    "medical": ["surgery", "misdiagnosed", "misdiagnosis", "doctor made", "malpractice", "wrong medication"],
 }
 DEFENSE_CUES = ["i hit", "i rear-ended", "suing me", "sued me", "lawsuit against me",
                 "claim against me", "my fault", "i ran the light"]
@@ -86,9 +86,14 @@ def all_text(evidence: list[Evidence]) -> str:
     return " ".join(e.text for e in evidence).lower()
 
 
+def _count_words(text: str, phrase: str) -> int:
+    """Whole-word count, so "car" doesn't match "urgent care", "scar" or "card"."""
+    return len(re.findall(rf"\b{re.escape(phrase)}\b", text))
+
+
 def detect_case_type(evidence: list[Evidence]) -> str:
     text = all_text(evidence)
-    scores = {k: sum(text.count(w) for w in words) for k, words in CASE_KEYWORDS.items()}
+    scores = {k: sum(_count_words(text, w) for w in words) for k, words in CASE_KEYWORDS.items()}
     best = max(scores, key=scores.get)
     return best if scores[best] > 0 else "other"
 
