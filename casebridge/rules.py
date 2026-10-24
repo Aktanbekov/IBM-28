@@ -223,6 +223,14 @@ def missing_evidence(evidence: list[Evidence], case_type: str) -> list[str]:
     return missing
 
 
+def readiness(evidence: list[Evidence], case_type: str) -> tuple[int, int]:
+    """(items covered, items on the checklist) for "what a lawyer will likely ask for".
+    It measures how complete the evidence is, never how strong or valuable the case is."""
+    items = [label for label, _, _ in CHECKLIST.get(case_type, DEFAULT_CHECKLIST)
+             if not (label == "Written repair estimate" and on_foot(evidence))]
+    return len(items) - len(missing_evidence(evidence, case_type)), len(items)
+
+
 def deadlines(evidence: list[Evidence], case_type: str) -> list[dict]:
     """California general rules only. Shown as 'ask a lawyer to confirm', never as advice."""
     out = []

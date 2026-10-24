@@ -333,12 +333,22 @@ def _nicknames(first: str) -> list[str]:
     return [stem + end for end in ("ie", "y", "ita", "ito", "i")]
 
 
-def redact(text: str, names: dict[str, str]) -> str:
+def redact(text: str, names: dict[str, str], swaps: list[tuple[str, str]] | None = None) -> str:
+    """Replace personal details with placeholders. Pass a list as swaps to also get every
+    (original, placeholder) pair in order, e.g. for the app's client-to-lawyer view animation."""
+    def sub(rx: re.Pattern, token: str, text: str) -> str:
+        def one(m: re.Match) -> str:
+            new = m.expand(token)
+            if swaps is not None:
+                swaps.append((m.group(0), new))
+            return new
+        return rx.sub(one, text)
+
     text = ZERO_WIDTH_RE.sub("", text)   # "Ma\u200bria" must not slip past the name match
     for rx, token in PII_PATTERNS:
-        text = rx.sub(token, text)
+        text = sub(rx, token, text)
     for name in sorted(names, key=len, reverse=True):
-        text = _name_re(name).sub(names[name], text)
+        text = sub(_name_re(name), names[name], text)
     return re.sub(r"(\[[A-Z #]+\])(?:\s+\1)+", r"\1", text)   # "[CLIENT] [CLIENT]" -> "[CLIENT]"
 
 
