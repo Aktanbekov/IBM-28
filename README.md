@@ -7,9 +7,9 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-23 17:44 (commit `d4c511d`) |
+| Last updated | 2026-10-23 19:19 (commit `4e5f559`) |
 | Tests | passing (9 passed) |
-| Commits | 3 |
+| Commits | 6 |
 | Contributors | Aktai Aktanbekov, Aktanbekov |
 <!-- AUTO:STATUS:END -->
 
@@ -61,8 +61,8 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Open http://localhost:8501, click **Load demo case (Maria)**, then **Build my case brief →**, and go
-through the pages in the sidebar.
+Open http://localhost:8501, click **Load demo case (Maria)**, then **Build my case brief**, then
+**Open my case brief**, and go through the steps in the sidebar.
 
 Run the tests:
 
@@ -94,6 +94,9 @@ casebridge/brief.py     The agent pipeline: rules -> Granite -> guardrails
 casebridge/safety.py    Citation enforcement, advice guardrail, PII redaction
 casebridge/matching.py  Explainable lawyer matching
 data/                   Fictional demo case and fictional lawyer profiles
+.streamlit/config.toml  App theme (colours, font); serves static/ so the font works offline
+static/fonts/           Atkinson Hyperlegible font files (SIL Open Font License)
+PRODUCT.md              Product context used by the Impeccable design skill
 tests/                  Automated tests
 scripts/                README auto-update script
 AGENTS.md               Rules for the team and for AI coding agents
@@ -123,6 +126,7 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 
 | Date | Author | Change |
 |---|---|---|
+| 2026-10-23 | Aktanbekov | ui: restyle app with the Marked-up paperwork design |
 | 2026-10-23 | Aktanbekov | Add CaseBridge MVP, team rules, and auto-updating README |
 | 2026-10-23 | Aktanbekov | Extend .gitignore for secrets, AI coding tools, and editors |
 | 2026-10-23 | Aktai Aktanbekov | Initial commit |
