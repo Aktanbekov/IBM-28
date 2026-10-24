@@ -14,6 +14,7 @@ import os
 import re
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date
@@ -50,8 +51,14 @@ def _post(url: str, payload: dict, headers: dict | None = None, form: bool = Fal
         data = json.dumps(payload).encode()
         ctype = "application/json"
     req = urllib.request.Request(url, data=data, headers={"Content-Type": ctype, **(headers or {})})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        # The body says *why* (e.g. watsonx 403: no_associated_service_instance_error or
+        # token_quota_reached); "403 Forbidden" alone sends people clicking around the console.
+        body = exc.read().decode(errors="replace")[:600]
+        raise RuntimeError(f"HTTP {exc.code}: {body}") from exc
 
 
 def _get(url: str, timeout=10) -> dict:
@@ -244,6 +251,14 @@ def guardian_check(user_text: str, risk_definition: str, evidence_text: str,
     return None
 
 
+WATSONX_ERROR_HINTS = {
+    "no_associated_service_instance": "The project has no watsonx.ai Runtime. Project > Manage > "
+        "Services & integrations > Associate service (clear the group and location filters).",
+    "token_quota_reached": "The Lite plan's monthly token quota is used up for this account. "
+        "Use an API key and project from another account, or LLM_BACKEND=rules.",
+}
+
+
 def _self_check() -> None:
     """python -m casebridge.llm : show what is connected and try one real call of each kind."""
     b = backend()
@@ -267,6 +282,9 @@ def _self_check() -> None:
             print(f"Chat test:    {chat('Reply with one word.', 'Say OK.', max_tokens=5, as_json=False).strip()!r}")
         except Exception as exc:
             print(f"Chat test:    FAILED ({exc})")
+            for code, hint in WATSONX_ERROR_HINTS.items():
+                if code in str(exc):
+                    print(f"Fix:          {hint}")
     print(f"Fact checker: {checker() or 'none (citations and numbers rules only)'}")
     if not checker():
         return

@@ -194,3 +194,17 @@ def test_watsonx_api_key_is_form_encoded(monkeypatch):
     monkeypatch.setattr(llm.urllib.request, "urlopen", fake_urlopen)
     llm._post("https://example.invalid/token", {"apikey": "a+b&c=d"}, form=True)
     assert sent["body"] == b"apikey=a%2Bb%26c%3Dd"
+
+
+def test_watsonx_error_body_is_shown(monkeypatch):
+    """A 403 must say why (IBM's error code), not just "Forbidden"."""
+    import io
+    import urllib.error
+    body = b'{"errors":[{"code":"no_associated_service_instance_error"}],"status_code":403}'
+
+    def fake_urlopen(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(llm.urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(RuntimeError, match="403.*no_associated_service_instance_error"):
+        llm._post("https://example.invalid/chat", {})
