@@ -86,11 +86,14 @@ if page.startswith("1"):
     st.write("You don't need to organize anything. Add whatever you have: a voice note, photos, "
              "letters, reports. We'll put it in order for a lawyer.")
 
-    c1, c2 = st.columns([1, 3])
+    c1, c2, c3 = st.columns([1, 1, 2])
     if c1.button("Load demo case (Maria)", type="primary"):
         ss.evidence = ingest.load_demo_case()
         ss.brief = None
-    if c2.button("Clear"):
+    if c2.button("Load demo case (Rosa)"):
+        ss.evidence = ingest.load_demo_case("rosa")
+        ss.brief = None
+    if c3.button("Clear"):
         ss.evidence, ss.brief = [], None
 
     with st.expander("Add your own evidence", expanded=not ss.evidence):
@@ -104,7 +107,7 @@ if page.startswith("1"):
                 captions[up.name] = st.text_input(f"What does {up.name} show?", key=f"cap_{up.name}")
             elif kind == "voice":
                 st.audio(up)
-                captions[up.name] = st.text_area(f"Transcript of {up.name} (speech-to-text is a next step)",
+                captions[up.name] = st.text_area(f"Transcript of {up.name} (optional: we transcribe it for you)",
                                                  key=f"cap_{up.name}")
         if st.button("Add to my case"):
             new = []
@@ -115,7 +118,16 @@ if page.startswith("1"):
                 data = up.getvalue()
                 if kind == "document" and up.name.lower().endswith(".pdf"):
                     text = ingest.pdf_text(data)
-                elif kind in ("photo", "voice"):
+                elif kind == "voice":
+                    with st.spinner(f"Transcribing {up.name}…"):
+                        ev = ingest.voice_evidence(data, up.name)
+                    if captions.get(up.name):      # the client typed or corrected the transcript
+                        ev.text = captions[up.name]
+                        if "needs a typed transcript" in ev.title:
+                            ev.title = f"Voice memo {up.name} (transcript typed by client)"
+                    new.append(ev)
+                    continue
+                elif kind == "photo":
                     text = captions.get(up.name) or f"[{kind} uploaded, no description yet]"
                 else:
                     text = data.decode("utf-8", errors="ignore")
@@ -201,7 +213,8 @@ elif page.startswith("3"):
     results, excluded = matching.match(b.case_type, b.client_side, b.county or None, b.languages)
     st.caption(f"Showing {len(results)} lawyers who handle **{PRACTICE_AREAS[b.case_type]}** for the "
                f"**{b.client_side}** side. Hidden: {excluded['practice_area']} with a different practice "
-               f"area, {excluded['side']} who only represent the other side.")
+               f"area, {excluded['side']} who only represent the other side"
+               + (f", {excluded['language']} who don't speak your language." if excluded["language"] else "."))
 
     case = my_case()
     if case is None:
