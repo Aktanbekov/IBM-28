@@ -52,6 +52,8 @@ ss.setdefault("evidence", [])
 ss.setdefault("brief", None)
 ss.setdefault("board", [dict(c) for c in SEED_BOARD])
 ss.setdefault("sent_to", [])
+ss.setdefault("declined_by", set())   # lawyers who declined the brief; hidden from the client's list
+ss.setdefault("inbox_accepted", False)
 ss.setdefault("my_case_id", None)
 ss.setdefault("hidden", set())     # statements the client chose to hide from lawyers (safety.fact_key)
 ss.setdefault("last_mic_id", None) # id of the last mic recording already added, to avoid re-processing
@@ -975,6 +977,7 @@ elif page.startswith("3"):
         st.stop()
 
     results, excluded = matching.match(b.case_type, b.client_side, b.county or None, b.languages)
+    results = [lw for lw in results if lw["id"] not in ss.declined_by]
     n = len(results)
     lead(f"{n} lawyer{'' if n == 1 else 's'} handle{'s' if n == 1 else ''} {PRACTICE_AREAS[b.case_type].lower()} "
          f"cases for {SIDE_PLAIN[b.client_side]}. Send your brief to the one you choose, or post it anonymously "
@@ -1089,6 +1092,17 @@ else:
                                    ("injuries", "Injuries"), ("damages", "Costs and losses")):
                 show_facts(title, getattr(b, section), dated=section == "timeline")
             meta("Missing: " + ", ".join(b.missing_evidence))
+            st.divider()
+            c1, c2 = st.columns(2)
+            if c1.button("✅ Accept — I can take this case", type="primary", key="inbox_accept", use_container_width=True):
+                ss.inbox_accepted = True
+                st.rerun()
+            if c2.button("❌ Decline — I can't take this case", key="inbox_decline", use_container_width=True):
+                ss.sent_to.remove(me["id"])
+                ss.declined_by.add(me["id"])
+                st.rerun()
+        elif ss.get("inbox_accepted"):
+            state_note("<b>You accepted this case.</b> The client will be notified that you are available.")
         else:
             st.html('<p class="cb-empty">No briefs sent to you yet. When a client chooses you, their full brief '
                     'appears here.</p>')
