@@ -48,6 +48,7 @@ ss.setdefault("board", [dict(c) for c in SEED_BOARD])
 ss.setdefault("sent_to", [])
 ss.setdefault("my_case_id", None)
 ss.setdefault("hidden", set())     # statements the client chose to hide from lawyers (safety.fact_key)
+ss.setdefault("last_mic_id", None) # id of the last mic recording already added, to avoid re-processing
 
 
 # --- look and feel ---------------------------------------------------------------------
@@ -77,6 +78,8 @@ CSS = """
 .cb-tag{display:inline-block;margin-left:.4rem;padding:0 .4rem;border-radius:2px;font-size:.75rem;font-weight:700;
   line-height:1.4rem;color:#1E2230;white-space:nowrap;font-variant-numeric:tabular-nums}
 .cb-tag:first-child{margin-left:0}
+.cb-tag-warn{display:inline-block;margin-left:.4rem;padding:0 .55rem;border-radius:2px;font-size:.75rem;font-weight:700;
+  line-height:1.4rem;background:#FF9F2E;color:#1E2230;white-space:nowrap}
 .cb-redact{display:inline-block;padding:0 .4rem;border-radius:2px;background:#1E2230;color:#fff;font-size:.72rem;
   font-weight:700;letter-spacing:.03em;line-height:1.35rem;white-space:nowrap}
 ul.cb-list,ul.cb-why{list-style:none;margin:0;padding:0 !important}
@@ -171,6 +174,11 @@ def tag(eid: str) -> str:
     return f'<span class="cb-tag" style="background:{highlighter(eid)}">{esc(eid)}</span>'
 
 
+def guardian_tags(flags: list) -> str:
+    """Amber chips for Guardian flags; empty string when flags is empty."""
+    return "".join(f'<span class="cb-tag-warn">{esc(str(flag))}</span>' for flag in flags)
+
+
 def rich(text: str) -> str:
     """Escape text, turn [E1, E2] into evidence tags and [CLIENT]-style tokens into redaction marks."""
     def swap(m: re.Match) -> str:
@@ -228,12 +236,13 @@ def show_facts(title: str, facts: list, dated: bool = False):
     rows = []
     for f in facts:
         tags = "".join(tag(s) for s in f["sources"])
+        gflags = guardian_tags(f.get("guardian_flags") or [])
         if dated:
             rows.append(f'<li><span class="cb-date">{esc(short_date(f.get("when") or ""))}</span>'
-                        f'<span>{rich(f["text"])} {tags}</span></li>')
+                        f'<span>{rich(f["text"])} {tags}{gflags}</span></li>')
         else:
             when = f'<b>{esc(f["when"])}</b> · ' if f.get("when") else ""
-            rows.append(f'<li><span>{when}{rich(f["text"])} {tags}</span></li>')
+            rows.append(f'<li><span>{when}{rich(f["text"])} {tags}{gflags}</span></li>')
     st.html(f'<ul class="cb-list{" cb-dated" if dated else ""}">{"".join(rows)}</ul>')
 
 
@@ -346,6 +355,27 @@ if page.startswith("1"):
 
     with st.expander("Add your own evidence", expanded=not ss.evidence, icon=":material/add_circle:"):
         note = st.text_area("In your own words (any language, any order)", height=120)
+
+        # --- In-browser mic recording -------------------------------------------
+        try:
+            from streamlit_mic_recorder import mic_recorder
+            recording = mic_recorder(
+                start_prompt="🎙 Record a voice memo",
+                stop_prompt="⏹ Stop recording",
+                just_once=False,
+                format="webm",
+                key="mic",
+            )
+            if recording and recording.get("id") != ss.last_mic_id:
+                ss.last_mic_id = recording["id"]
+                with st.spinner("Transcribing your recording…"):
+                    ev = ingest.voice_evidence(recording["bytes"], "mic_recording.webm")
+                ss.evidence = ingest.number(ss.evidence + [ev])
+                ss.brief = None
+                st.rerun()
+        except ImportError:
+            pass  # mic recorder not installed; upload path still works
+
         uploads = st.file_uploader("Photos, PDFs, voice memos, text files", accept_multiple_files=True)
         captions = {}
         for up in uploads or []:
@@ -371,15 +401,19 @@ if page.startswith("1"):
                         ev = ingest.voice_evidence(data, up.name)
                     if captions.get(up.name):      # the client typed or corrected the transcript
                         ev.text = captions[up.name]
-                        if "needs a typed transcript" in ev.title:
+                        # Update the title whenever the client provided their own text,
+                        # regardless of whether whisper succeeded, failed, or was unclear.
+                        if not ev.title.endswith("(transcribed)") and \
+                                "originally in" not in ev.title:
                             ev.title = f"Voice memo {up.name} (transcript typed by client)"
                     new.append(ev)
                     continue
                 elif kind == "photo":
                     text = captions.get(up.name) or f"[{kind} uploaded, no description yet]"
                     # Time goes to the timeline; GPS is written so redaction hides it from lawyers.
-                    note = ingest.photo_note(ingest.photo_metadata(data))
-                    text = f"{text} {note}".strip()
+                    # Use a local variable so the outer `note` (typed text) is not clobbered.
+                    photo_note_text = ingest.photo_note(ingest.photo_metadata(data))
+                    text = f"{text} {photo_note_text}".strip()
                 else:
                     text = data.decode("utf-8", errors="ignore")
                 new.append(Evidence("", kind, up.name, text, up.name))
@@ -427,6 +461,8 @@ elif page.startswith("2"):
     ev_by_id = {e.id: e for e in ss.evidence}
 
     lead(b.summary)
+    if b.summary_guardian_flags:
+        st.html(guardian_tags(b.summary_guardian_flags))
     status, _ = engine_status(b.engine)
     meta(f"{status} Every statement shows the evidence it came from. Statements without a source are removed "
          "automatically.")

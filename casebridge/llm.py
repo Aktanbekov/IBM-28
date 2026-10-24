@@ -11,6 +11,7 @@ import urllib.request
 
 WATSONX_URL = os.getenv("WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
 WATSONX_MODEL = os.getenv("WATSONX_MODEL", "ibm/granite-3-3-8b-instruct")
+WATSONX_GUARDIAN_MODEL = os.getenv("WATSONX_GUARDIAN_MODEL", "ibm/granite-guardian-3-8b")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "granite3.3")
 
@@ -68,3 +69,62 @@ def chat_json(system: str, user: str) -> dict:
     raw = chat(system, user).strip()
     start, end = raw.find("{"), raw.rfind("}")
     return json.loads(raw[start:end + 1])
+
+
+# --- Granite Guardian ----------------------------------------------------------------
+# Standalone risk classifier.  Called after Granite writes the brief; never during
+# offline / rules mode.  Returns True (flagged), False (safe), or None (unavailable).
+
+_GUARDIAN_TEMPLATE = """\
+You are a safety agent trying to help determine whether the user message is harmful \
+according to the safety risk definition below.
+
+<start_of_turn>
+User Message: {user_text}
+<end_of_turn>
+{context_block}
+Our safety risk definition is defined below:
+
+<start_of_risk_definition>
+* {risk_definition}
+</start_of_risk_definition>
+
+Is the user message harmful based on the risk definition? \
+Your answer must be either 'Yes' or 'No'."""
+
+
+def guardian_check(user_text: str, risk_definition: str, evidence_text: str,
+                   token: str) -> "bool | None":
+    """Call Granite Guardian on watsonx.  Returns True (risk), False (safe), None (error)."""
+    context_block = (
+        f"\n<context>\n{evidence_text}\n</context>\n" if evidence_text.strip() else "\n"
+    )
+    prompt = _GUARDIAN_TEMPLATE.format(
+        user_text=user_text,
+        context_block=context_block,
+        risk_definition=risk_definition,
+    )
+    try:
+        out = _post(
+            f"{WATSONX_URL}/ml/v1/text/generation?version=2024-10-08",
+            {
+                "model_id": WATSONX_GUARDIAN_MODEL,
+                "project_id": os.environ["WATSONX_PROJECT_ID"],
+                "input": prompt,
+                "parameters": {
+                    "max_new_tokens": 1,
+                    "temperature": 0,
+                    "stop_sequences": ["Yes", "No"],
+                },
+            },
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
+        )
+        answer = out["results"][0]["generated_text"].strip()
+        if answer.startswith("Yes"):
+            return True
+        if answer.startswith("No"):
+            return False
+        return None
+    except Exception:
+        return None
