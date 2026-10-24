@@ -397,7 +397,7 @@ if page.startswith("1"):
                     with st.spinner(f"Transcribing {up.name}…"):
                         ev = ingest.voice_evidence(data, up.name)
                     if captions.get(up.name):      # the client typed or corrected the transcript
-                        ev.text = captions[up.name]
+                        ev.text = safety.clean_speech(captions[up.name])[0] or captions[up.name]
                         # Update the title whenever the client provided their own text,
                         # regardless of whether whisper succeeded, failed, or was unclear.
                         if not ev.title.endswith("(transcribed)") and \
@@ -428,6 +428,8 @@ if page.startswith("1"):
         for e in ss.evidence:
             with st.expander(e.title, icon=f":material/{KIND_ICONS.get(e.kind, 'attach_file')}:", key=f"ev_{e.id}"):
                 st.html(f'<p class="cb-source">{esc(e.text)}</p>')
+                if e.kind == "voice":
+                    meta("Filler sounds, swearing and insults are left out of the transcript. Your recording is unchanged.")
         built_now = False
         if st.button("Rebuild my case brief" if ss.brief else "Build my case brief",
                      type="secondary" if ss.brief else "primary",

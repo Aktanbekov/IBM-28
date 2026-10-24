@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .models import Evidence
+from .safety import clean_speech
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 DEMO_DIR = DATA_DIR / "demo_case"
@@ -99,6 +100,8 @@ def voice_evidence(data: bytes, file_name: str) -> Evidence:
     """Build a voice Evidence item. The title records the original language, which the brief
     uses to set the client's languages (see brief.build)."""
     text, language = transcribe(data, file_name)
+    if not text.startswith("["):   # a lawyer reads the facts, not the "um"s and swearing
+        text = clean_speech(text)[0] or "[No usable speech in this recording.]"
     if language is None and text.startswith("["):
         title = f"Voice memo {file_name} (needs a typed transcript)"
     elif language is None:

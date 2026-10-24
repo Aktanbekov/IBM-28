@@ -25,6 +25,53 @@ ADVICE_PATTERNS = [
 ADVICE_RE = re.compile("|".join(ADVICE_PATTERNS), re.I)
 
 
+# --- Spoken-transcript cleanup ------------------------------------------------------------
+# Voice memos are recorded in shock: "this stupid driver crashed my car hm hm, f*** him, what
+# do I do". A lawyer needs the facts, not the filler sounds, swearing, insults or questions to
+# no one. The audio itself is never changed; only the transcript the brief is built from is.
+SPEECH_NOISE = [
+    # Curses aimed at someone, removed as a whole phrase: "fuck him", "screw that guy".
+    r"\b(?:fuck|screw|damn|to hell with)\s+(?:him|her|them|you|it|that|this)"
+    r"(?:\s+(?:guy|man|woman|lady|driver|person))?\b",
+    r"\bwhat the (?:fuck|hell|heck)\b",
+    # Asking for help out loud: not a fact about the accident.
+    r"\b(?:i don'?t know )?what (?:do|should|can) i do\b\??|\b(?:i don'?t know )?what to do\b\??",
+    # Swear words, including Whisper's own masking ("f***ing").
+    r"\bf+u+c+k+(?:ing|in'?|ed|er|ers|s)?\b|\bf\*+[a-z]*|\b(?:bull)?shit(?:ty|s)?\b"
+    r"|\bgod ?damn(?:ed|it)?\b|\bdamn(?:ed|it)?\b|\bbitch(?:es)?\b|\bcrap\b|\bass(?:holes?)?\b"
+    r"|\bbastards?\b|\bwtf\b",
+    # Insults about the other person. The fact ("the driver crashed my car") stays.
+    r"\b(?:stupid|idiot(?:ic|s)?|moron(?:ic|s)?|dumb(?:ass)?|jerk)\b",
+    # Filler sounds.
+    r"\b(?:u+h+m*|u+m+|h+m+|m{2,}|e+r+m+|a+h+|e+h+)\b",
+]
+SPEECH_NOISE_RE = re.compile("|".join(f"(?:{p})" for p in SPEECH_NOISE), re.I)
+REPEATED_WORD_RE = re.compile(r"(^|[.!?]\s+|\n)(\w{1,3})(?:[\s,]+\2\b)+\s*[.!?]?\s*(?=\S|$)", re.I)
+
+
+def clean_speech(text: str) -> tuple[str, int]:
+    """Remove filler sounds, swearing, insults and spoken help-questions from a transcript.
+    Returns (clean text, number of pieces removed)."""
+    clean, removed = SPEECH_NOISE_RE.subn("", text)
+    # A sentence that is one short word said over and over ("Him, him." is Whisper's
+    # usual mishearing of "hmm, hmm"; "No no no.") carries no fact.
+    clean, stutters = REPEATED_WORD_RE.subn(r"\1", clean)
+    removed += stutters
+    if not removed:
+        return text, 0
+    clean = re.sub(r"[ \t]+", " ", clean)
+    clean = re.sub(r" +([,.!?;:])", r"\1", clean)                # "car ," -> "car,"
+    clean = re.sub(r"([,;:])(?:\s*[,;:])+", r"\1", clean)          # ", ," -> ","
+    clean = re.sub(r"[,;:]+\s*([.!?])", r"\1", clean)              # ",." -> "."
+    clean = re.sub(r"([.!?])(?:\s*[,.!?;:])+", r"\1", clean)       # ". ," -> "."
+    clean = re.sub(r"(^|\n)[ ,.!?;:]+", r"\1", clean)               # punctuation left at a line start
+    clean = re.sub(r"[ ,;:]+(\n|$)", r"\1", clean).strip()
+    clean = re.sub(r"(^|[.!?]\s+|\n)([a-z])", lambda m: m.group(1) + m.group(2).upper(), clean)
+    if clean and clean[-1].isalnum():
+        clean += "."
+    return clean, removed
+
+
 def is_advice(text: str) -> bool:
     return bool(ADVICE_RE.search(text))
 
