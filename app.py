@@ -102,6 +102,7 @@ CSS = """
 .cb-unchecked{border:1px dashed #8A90A6;color:#4A5068}
 .cb-flagged{text-decoration:underline wavy #1E2230;text-decoration-thickness:1px;text-underline-offset:.28em;
   text-decoration-skip-ink:none}
+.cb-quote-by{margin-left:.35rem;font-size:.75rem;font-style:italic;color:#4A5068}
 .cb-removed{text-decoration:line-through;text-decoration-thickness:1.5px;color:#4A5068}
 .cb-caught{display:block;font-size:.85rem;color:#4A5068;margin-top:.1rem}
 .cb-caught b{color:#1E2230}
@@ -298,6 +299,19 @@ def state_note(body: str):
     st.html(f'<div class="cb-notice cb-state">{body}</div>')
 
 
+FIRST_PERSON_RE = re.compile(r"\b(I|I'm|I've|I'd|me|my|mine|we|our|us)\b|\b(yo|mi|me|tôi)\b", re.I)
+
+
+def quoted(text_html: str, raw: str, sources: list) -> str:
+    """A line copied word for word in the first person ("I missed 6 days of work") is shown as a
+    quote with who said it, so it never reads as CaseBridge speaking."""
+    if not FIRST_PERSON_RE.search(raw):
+        return text_html
+    kinds = {e.id: e.kind for e in ss.evidence}
+    by = "the client's words" if any(kinds.get(s) in ("voice", "note") for s in sources) else "quoted from the document"
+    return f'“{text_html}”<span class="cb-quote-by">{by}</span>'
+
+
 def show_facts(title: str, facts: list, dated: bool = False):
     heading(title)
     facts = [f if isinstance(f, dict) else f.__dict__ for f in facts]
@@ -308,7 +322,7 @@ def show_facts(title: str, facts: list, dated: bool = False):
     for f in facts:
         tags = "".join(tag(s) for s in f["sources"])
         flags = f.get("guardian_flags") or []
-        text, gflags = flagged(rich(f["text"]), flags), guardian_tags(flags)
+        text, gflags = flagged(quoted(rich(f["text"]), f["text"], f["sources"]), flags), guardian_tags(flags)
         if dated:
             rows.append(f'<li><span class="cb-date">{esc(short_date(f.get("when") or ""))}</span>'
                         f'<span>{text} {tags}{gflags}</span></li>')
