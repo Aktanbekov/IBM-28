@@ -34,6 +34,12 @@ class CaseBrief:
     deadlines: list[dict] = field(default_factory=list)
     languages: list[str] = field(default_factory=lambda: ["English"])
     warnings: list[str] = field(default_factory=list)
+    # Insurer tactics found in the evidence (rules.insurer_alerts):
+    # {"title", "meaning", "ask", "sources"}. Explanations only, never advice.
+    alerts: list[dict] = field(default_factory=list)
+    # Places where two pieces of evidence disagree (rules.contradictions):
+    # {"topic", "text", "sources"}, so a lawyer can clarify them early.
+    contradictions: list[dict] = field(default_factory=list)
     engine: str = "rules"
 
     def to_dict(self) -> dict:

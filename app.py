@@ -11,7 +11,7 @@ from datetime import date, datetime
 import streamlit as st
 
 from casebridge import brief as brief_agent
-from casebridge import ingest, llm, matching, safety
+from casebridge import ingest, llm, matching, rules, safety
 from casebridge.models import Evidence, PRACTICE_AREAS
 
 st.set_page_config(page_title="CaseBridge", page_icon=":material/edit_note:", layout="wide")
@@ -47,6 +47,7 @@ ss.setdefault("brief", None)
 ss.setdefault("board", [dict(c) for c in SEED_BOARD])
 ss.setdefault("sent_to", [])
 ss.setdefault("my_case_id", None)
+ss.setdefault("hidden", set())     # statements the client chose to hide from lawyers (safety.fact_key)
 
 
 # --- look and feel ---------------------------------------------------------------------
@@ -295,6 +296,18 @@ def evidence_names():
     return safety.find_names([e.text for e in ss.evidence])
 
 
+def anonymized_brief() -> dict:
+    """What a lawyer sees before the client accepts them: redacted, minus lines the client hid."""
+    return safety.hide_facts(safety.redact_brief(ss.brief, evidence_names()), ss.hidden)
+
+
+def privacy_receipt(red: dict):
+    """The privacy receipt: what redaction (and the client) kept away from lawyers, in plain words."""
+    hidden = safety.privacy_summary(red)
+    if hidden:
+        meta("Hidden from lawyers: " + ", ".join(f"{n} × {what}" for what, n in hidden.items()) + ".")
+
+
 # --- sidebar ---------------------------------------------------------------------------
 
 style(CSS)
@@ -322,6 +335,9 @@ if page.startswith("1"):
         if st.button("Load demo case (Maria)", icon=":material/folder_open:"):
             ss.evidence = ingest.load_demo_case()
             ss.brief = None
+        if st.button("Load demo case (Rosa)", icon=":material/folder_open:"):
+            ss.evidence = ingest.load_demo_case("rosa")
+            ss.brief = None
         if st.button("Clear", icon=":material/restart_alt:", type="tertiary"):
             ss.evidence, ss.brief = [], None
 
@@ -336,7 +352,7 @@ if page.startswith("1"):
                 captions[up.name] = st.text_input(f"What does {up.name} show?", key=f"cap_{up.name}")
             elif kind == "voice":
                 st.audio(up)
-                captions[up.name] = st.text_area(f"Transcript of {up.name} (speech-to-text is a next step)",
+                captions[up.name] = st.text_area(f"Transcript of {up.name} (optional: we transcribe it for you)",
                                                  key=f"cap_{up.name}")
         if st.button("Add to my case", icon=":material/add:"):
             new = []
@@ -347,8 +363,20 @@ if page.startswith("1"):
                 data = up.getvalue()
                 if kind == "document" and up.name.lower().endswith(".pdf"):
                     text = ingest.pdf_text(data)
-                elif kind in ("photo", "voice"):
+                elif kind == "voice":
+                    with st.spinner(f"Transcribing {up.name}…"):
+                        ev = ingest.voice_evidence(data, up.name)
+                    if captions.get(up.name):      # the client typed or corrected the transcript
+                        ev.text = captions[up.name]
+                        if "needs a typed transcript" in ev.title:
+                            ev.title = f"Voice memo {up.name} (transcript typed by client)"
+                    new.append(ev)
+                    continue
+                elif kind == "photo":
                     text = captions.get(up.name) or f"[{kind} uploaded, no description yet]"
+                    # Time goes to the timeline; GPS is written so redaction hides it from lawyers.
+                    note = ingest.photo_note(ingest.photo_metadata(data))
+                    text = f"{text} {note}".strip()
                 else:
                     text = data.decode("utf-8", errors="ignore")
                 new.append(Evidence("", kind, up.name, text, up.name))
@@ -372,6 +400,9 @@ if page.startswith("1"):
                      icon=":material/refresh:" if ss.brief else ":material/arrow_forward:"):
             with st.spinner("Organizing your evidence..."):
                 ss.brief = brief_agent.build(ss.evidence)
+                ss.hidden = set()
+                for k in [k for k in ss if str(k).startswith("hide_")]:
+                    del ss[k]          # a new brief starts with nothing hidden
             built_now = True
         if built_now:
             state_note("<b>Your brief is ready.</b> Every statement in it points back to your evidence.")
@@ -413,6 +444,17 @@ elif page.startswith("2"):
     for w in b.warnings:
         notice(w, b.deadlines)
 
+    # Insurer tactics: what each one means, and a question to bring to a lawyer. Never advice.
+    for a in b.alerts:
+        tags = "".join(tag(s) for s in a["sources"])
+        st.html(f'<div class="cb-notice cb-time"><b>{esc(a["title"])}</b> {tags}<br>{esc(a["meaning"])}'
+                f'<br><i>A question to ask a lawyer:</i> {esc(a["ask"])}</div>')
+    # Details that disagree between documents, with the evidence on each side.
+    for c in b.contradictions:
+        st.html(f'<div class="cb-notice cb-note"><b>Details that don\'t match: {esc(c["topic"])}</b>'
+                f'{rich(c["text"])} A lawyer will want to clear this up early. It is common and doesn\'t mean '
+                'anyone did something wrong.</div>')
+
     left, right = st.columns([3, 2], gap="large")
     with left:
         show_facts("Timeline", b.timeline, dated=True)
@@ -433,16 +475,30 @@ elif page.startswith("2"):
         heading("What a lawyer will likely ask for")
         if b.missing_evidence:
             st.html('<ul class="cb-list cb-checklist">'
-                    + "".join(f"<li>{esc(m)}</li>" for m in b.missing_evidence) + "</ul>")
+                    + "".join(f"<li><span>{esc(m)}" + (f'<br><small>How to get it: {esc(rules.how_to_get(m))}</small>'
+                                                       if rules.how_to_get(m) else "") + "</span></li>"
+                              for m in b.missing_evidence) + "</ul>")
         else:
             st.html('<p class="cb-empty">No common items are missing.</p>')
 
     with st.expander("Preview what a lawyer sees before you accept them", icon=":material/visibility_off:"):
         meta("Names, phone numbers, emails, plates and report numbers stay hidden until you accept a lawyer.")
         red = safety.redact_brief(b, evidence_names())
+        receipt = st.container()       # filled after the checkboxes, so it reflects this click
         lead(red["summary"])
-        show_facts("Timeline", red["timeline"], dated=True)
-        show_facts("People involved", red["parties"])
+        meta("Tick any line you'd rather not show to lawyers yet. You can share it later.")
+        for section, title in (("timeline", "Timeline"), ("parties", "People involved"),
+                               ("injuries", "Injuries"), ("damages", "Costs and losses")):
+            heading(title)
+            for i, f in enumerate(red[section]):
+                key = safety.fact_key(section, i)
+                if st.checkbox(f"{f['text']} [{', '.join(f['sources'])}]", value=key in ss.hidden,
+                               key=f"hide_{key}", help="Hide this line from lawyers"):
+                    ss.hidden.add(key)
+                else:
+                    ss.hidden.discard(key)
+        with receipt:
+            privacy_receipt(safety.hide_facts(dict(red), ss.hidden))
 
 
 # --- 3. Matches ------------------------------------------------------------------------
@@ -459,7 +515,9 @@ elif page.startswith("3"):
     lead(f"Showing {len(results)} lawyers who handle {PRACTICE_AREAS[b.case_type].lower()} cases for "
          f"{SIDE_PLAIN[b.client_side]}.")
     meta(f"Hidden: {excluded['practice_area']} with a different practice area, {excluded['side']} who only "
-         "represent the other side. Lawyer profiles, ratings and reviews are sample data.")
+         "represent the other side"
+         + (f", {excluded['language']} who don't speak your language" if excluded["language"] else "")
+         + ". Lawyer profiles, ratings and reviews are sample data.")
 
     case = my_case()
     with st.container(border=True, key="post"):
@@ -468,7 +526,12 @@ elif page.startswith("3"):
             st.html('<p class="cb-meta">Only an anonymized version is posted. Your name, phone number and other '
                     'details stay hidden until you accept a lawyer.</p>')
             if st.button("Post my anonymized case to the lawyer board", icon=":material/visibility_off:"):
-                red = safety.redact_brief(b, evidence_names())
+                red = anonymized_brief()
+                # Second lock: refuse to post if any known name or personal detail is still present.
+                if safety.posting_blockers(red, evidence_names()):
+                    st.error("We stopped this post because some personal details could still be read. "
+                             "Please hide the lines that mention them on your case brief and try again.")
+                    st.stop()
                 red.update(id=f"C-{1040 + len(ss.board)}", posted=datetime.now().date().isoformat(),
                            connect_requests=[], connected=[], mine=True)
                 ss.board.insert(0, red)
@@ -478,6 +541,7 @@ elif page.startswith("3"):
             label("Your anonymized case")
             st.html(f'<p class="cb-meta">Case <b>{esc(case["id"])}</b> is on the lawyer board. Lawyers see it without '
                     'your name or contact details.</p>')
+            privacy_receipt(case)
             lawyers_by_id = {l["id"]: l for l in matching.load_lawyers()}
             for lid in case["connect_requests"]:
                 lw = lawyers_by_id[lid]
