@@ -49,8 +49,27 @@ def evidence_block(evidence: list[Evidence]) -> str:
 
 
 def _facts(items) -> list[Fact]:
-    return [Fact(text=str(i.get("text", "")), sources=list(i.get("sources", [])), when=i.get("when"))
-            for i in items or [] if isinstance(i, dict)]
+    """Facts from model output, coerced to the expected types: the model's JSON is steerable by
+    text hidden in evidence, so a list where a string belongs must not crash the brief or the app."""
+    if not isinstance(items, list):
+        return []
+    facts = []
+    for i in items:
+        if not isinstance(i, dict):
+            continue
+        sources = i.get("sources")
+        sources = [sources] if isinstance(sources, str) else sources if isinstance(sources, list) else []
+        when = i.get("when")
+        facts.append(Fact(text=str(i.get("text", "")), sources=[s for s in sources if isinstance(s, str)],
+                          when=str(when) if isinstance(when, (str, int, float)) and str(when).strip() else None))
+    return facts
+
+
+def _languages(value) -> list[str]:
+    """Only languages the app knows: the list reaches the lawyer board, which shows it unredacted."""
+    known = {l.lower(): l for l in [*rules.LANGUAGES, "English"]}
+    values = [value] if isinstance(value, str) else value if isinstance(value, list) else []
+    return [known[v.strip().lower()] for v in values if isinstance(v, str) and v.strip().lower() in known]
 
 
 def _fetch_token() -> str:
@@ -142,7 +161,10 @@ def build(evidence: list[Evidence], use_llm: bool = True) -> CaseBrief:
     if backend != "rules":
         try:
             data = llm.chat_json(SYSTEM_PROMPT, evidence_block(evidence))
-            brief.summary = data.get("summary") or brief.summary
+            if not isinstance(data, dict):
+                raise ValueError("model reply is not a JSON object")
+            if isinstance(data.get("summary"), str) and data["summary"].strip():
+                brief.summary = data["summary"]
             for section in _SECTIONS:
                 section_facts = _facts(data.get(section))
                 if section_facts:
@@ -153,8 +175,8 @@ def build(evidence: list[Evidence], use_llm: bool = True) -> CaseBrief:
                 brief.deadlines = rules.deadlines(evidence, brief.case_type)
             if data.get("client_side") in ("plaintiff", "defense"):
                 brief.client_side = data["client_side"]
-            if data.get("languages"):
-                brief.languages = sorted(set(brief.languages) | set(data["languages"]))
+            if _languages(data.get("languages")):
+                brief.languages = sorted(set(brief.languages) | set(_languages(data.get("languages"))))
             brief.engine = backend
         except Exception as exc:  # never let the demo die on a model hiccup
             brief.warnings.append(f"LLM unavailable ({type(exc).__name__}); used rule-based extraction.")
