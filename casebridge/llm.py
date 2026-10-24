@@ -14,6 +14,7 @@ import os
 import re
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date
@@ -267,6 +268,8 @@ def _self_check() -> None:
             print(f"Chat test:    {chat('Reply with one word.', 'Say OK.', max_tokens=5, as_json=False).strip()!r}")
         except Exception as exc:
             print(f"Chat test:    FAILED ({exc})")
+            if isinstance(exc, urllib.error.HTTPError):   # IBM's body names the real cause
+                print(f"              {exc.read().decode(errors='replace')[:600]}")
     print(f"Fact checker: {checker() or 'none (citations and numbers rules only)'}")
     if not checker():
         return
