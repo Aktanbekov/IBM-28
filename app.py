@@ -357,6 +357,14 @@ if page.startswith("1"):
         note = st.text_area("In your own words (any language, any order)", height=120)
 
         # --- In-browser mic recording -------------------------------------------
+        # Short recordings make Whisper guess the language, and a wrong guess loses what the
+        # client actually said. Letting them pick it fixes that; "Detect automatically" is default.
+        spoken = st.pills("Which language will you speak?", list(ingest.SPOKEN_LANGUAGES),
+                          default="Detect automatically", key="spoken_language")
+        voice_lang = ingest.SPOKEN_LANGUAGES.get(spoken)   # None = detect automatically
+        st.caption("CaseBridge turns speech into text itself, without sending it to an outside service. "
+                   "We keep your own words and add "
+                   "an English version for lawyers.")
         try:
             from streamlit_mic_recorder import mic_recorder
             recording = mic_recorder(
@@ -369,7 +377,7 @@ if page.startswith("1"):
             if recording and recording.get("id") != ss.last_mic_id:
                 ss.last_mic_id = recording["id"]
                 with st.spinner("Transcribing your recording…"):
-                    ev = ingest.voice_evidence(recording["bytes"], "mic_recording.webm")
+                    ev = ingest.voice_evidence(recording["bytes"], "mic_recording.webm", voice_lang)
                 ss.evidence = ingest.number(ss.evidence + [ev])
                 ss.brief = None
                 st.rerun()
@@ -398,7 +406,7 @@ if page.startswith("1"):
                     text = ingest.pdf_text(data)
                 elif kind == "voice":
                     with st.spinner(f"Transcribing {up.name}…"):
-                        ev = ingest.voice_evidence(data, up.name)
+                        ev = ingest.voice_evidence(data, up.name, voice_lang)
                     if captions.get(up.name):      # the client typed or corrected the transcript
                         ev.text = captions[up.name]
                         # Update the title whenever the client provided their own text,
