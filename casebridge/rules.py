@@ -23,7 +23,8 @@ DEFENSE_CUES = ["i hit", "i rear-ended", "suing me", "sued me", "lawsuit against
 PLAINTIFF_CUES = ["hit me", "struck vehicle 1", "rear-ended me", "hit from behind",
                   "bit me", "i was injured", "his insurance", "her insurance"]
 INJURY_WORDS = ["pain", "whiplash", "strain", "fracture", "broken bone", "concussion",
-                "bruise", "emergency room", "diagnosis", "physical therapy", "injur"]
+                "bruise", "emergency room", "diagnosis", "physical therapy", "injur",
+                "sprain", "contusion", "swell", "urgent care", "hurt"]
 PARTY_WORDS = ["driver", "insurance", "insured", "adjuster", "witness", "officer", "employer", "owner"]
 
 CITY_TO_COUNTY = {
@@ -66,7 +67,8 @@ CONTACT_RE = re.compile(r"\(?\d{3}\)?[\s.-]?\d{3}-\d{4}|[\w.]+@[\w.]+")
 
 def sentences(ev: Evidence) -> list[str]:
     # Don't split after honorifics like "Ms." or "Dr.".
-    parts = re.split(r"(?<!\bMs)(?<!\bMr)(?<!\bMrs)(?<!\bDr)(?<=[.!?])\s+", ev.text)
+    parts = re.split(r"(?<!\bMs\.)(?<!\bMr\.)(?<!\bMrs\.)(?<!\bDr\.)(?<!\bSra\.)(?<!\bSr\.)(?<=[.!?])\s+",
+                     ev.text)
     return [s.strip() for s in parts if s.strip()]
 
 
@@ -86,6 +88,25 @@ def detect_side(evidence: list[Evidence]) -> str:
     defense = sum(text.count(c) for c in DEFENSE_CUES)
     plaintiff = sum(text.count(c) for c in PLAINTIFF_CUES)
     return "defense" if defense > plaintiff else "plaintiff"
+
+
+LANGUAGES = ["Spanish", "Vietnamese", "Tagalog", "Mandarin", "Cantonese", "Korean", "Arabic",
+             "Hindi", "Tamil", "Portuguese", "Russian"]
+NO_ENGLISH_CUES = ["don't speak english", "do not speak english", "don't speak much english",
+                   "no english", "no hablo inglés", "no hablo ingles", "no hablo mucho inglés"]
+
+
+def detect_languages(evidence: list[Evidence]) -> list[str]:
+    """Languages the client speaks, from transcript titles ("originally in Spanish") and what
+    they say about themselves. English is dropped only when they say they don't speak it."""
+    found = []
+    for ev in evidence:
+        if ev.kind not in ("voice", "note"):
+            continue                       # letters from insurers say nothing about the client
+        blob = f"{ev.title} {ev.text}".lower()
+        found += [lang for lang in LANGUAGES if lang.lower() in blob and lang not in found]
+    english = not any(c in all_text(evidence) for c in NO_ENGLISH_CUES) or not found
+    return found + (["English"] if english else [])
 
 
 def detect_county(evidence: list[Evidence]) -> str | None:
