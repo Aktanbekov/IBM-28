@@ -234,7 +234,7 @@ ROLE_PATTERNS = [
 LOWER_INTRO_RE = re.compile(r"(?i:my name is|me llamo|mi nombre es|patient:|nombre:)\s+"
                             rf"([{_LO}'’-]+(?:\s[{_LO}'’-]+){{0,2}})")
 INTRO_STOP = {"and", "y", "i", "im", "my", "from", "de", "del", "la", "el", "is", "es", "but", "pero",
-              "so", "and", "the", "a", "was", "fui", "estaba", "soy", "am", "me", "mi", "tengo"}
+              "so", "the", "a", "was", "fui", "estaba", "soy", "am", "me", "mi", "tengo"}
 # Names that are also everyday words: replaced only when capitalized, to keep the brief readable.
 COMMON_WORDS = {"will", "mark", "grant", "bill", "may", "june", "april", "rose", "frank", "art", "hope",
                 "joy", "faith", "pat", "sue", "dawn", "rob", "ray", "guy", "jack", "chase", "page",

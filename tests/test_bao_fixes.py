@@ -97,3 +97,21 @@ def test_bare_form_time_is_not_a_timeline_row():
     assert "Time: 08:53." not in texts
     rosa = [f.text for f in rules.build_brief(load_demo_case("rosa")).timeline]
     assert any("10:30" in t for t in rosa)   # a time inside a real sentence stays
+
+
+def _split(text):
+    return rules.sentences(Evidence(id="E1", kind="note", title="t", text=text))
+
+
+def test_street_abbreviation_mid_sentence_does_not_split():
+    assert _split("I was on Oak St. near the park. Then it happened.") == [
+        "I was on Oak St. near the park.", "Then it happened."]
+    assert _split("421 Oak St. The accident was there.") == ["421 Oak St.", "The accident was there."]
+
+
+def test_lawyer_directory_is_cached_but_each_caller_gets_a_copy():
+    from casebridge import matching
+    first = matching.load_lawyers()
+    first[0]["name"] = "changed"
+    assert matching.load_lawyers()[0]["name"] != "changed"
+    assert any("español" in str(l) for l in matching.load_lawyers())   # read as UTF-8

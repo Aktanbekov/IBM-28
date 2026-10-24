@@ -77,8 +77,11 @@ CONTACT_RE = re.compile(r"\(?\d{3}\)?[\s.-]?\d{3}-\d{4}|[\w.]+@[\w.]+")
 
 
 def sentences(ev: Evidence) -> list[str]:
-    # Don't split after honorifics like "Ms." or "Dr.".
-    parts = re.split(r"(?<!\bMs\.)(?<!\bMr\.)(?<!\bMrs\.)(?<!\bDr\.)(?<!\bSra\.)(?<!\bSr\.)(?<=[.!?])\s+",
+    # Don't split after honorifics like "Ms." or "Dr.", or after a street abbreviation that the
+    # sentence carries on from ("Oak St. near the park", "Main Ave. in Fremont").
+    parts = re.split(r"(?<!\bMs\.)(?<!\bMr\.)(?<!\bMrs\.)(?<!\bDr\.)(?<!\bSra\.)(?<!\bSr\.)(?<=[.!?])\s+"
+                     r"(?!(?<=\b(?:St|Rd|Ln|Ct)\.\s)[a-z])(?!(?<=\b(?:Ave|Apt)\.\s)[a-z])"
+                     r"(?!(?<=\bBlvd\.\s)[a-z])",
                      ev.text)
     return [s.strip() for s in parts if s.strip()]
 
