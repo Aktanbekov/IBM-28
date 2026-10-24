@@ -156,3 +156,8 @@ def test_exact_quotes_skip_the_model_check():
     assert [c.args[0] for c in check.call_args_list] == ["Nobody in the car was hurt."]
     guardian = b.checks[-1]
     assert guardian["status"] == "pass" and "1 statement is an exact quote" in guardian["detail"]
+
+
+def test_month_names_support_numeric_dates():
+    assert safety.unsupported_numbers("The crash was on 10/2/2026.", ["Collision on October 2, 2026."]) == []
+    assert safety.unsupported_numbers("The crash was on 11/2/2026.", ["Collision on October 2, 2026."]) == ["11"]

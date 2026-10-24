@@ -4,15 +4,18 @@ Run: streamlit run app.py
 """
 from __future__ import annotations
 
+import copy
 import html
+import os
 import re
 import time
+import uuid
 from datetime import date, datetime
 
 import streamlit as st
 
 from casebridge import brief as brief_agent
-from casebridge import ingest, llm, matching, rules, safety, scoreboard
+from casebridge import ingest, llm, matching, rules, safety, scoreboard, store
 from casebridge.models import CaseBrief, Evidence, Fact, PRACTICE_AREAS
 
 st.set_page_config(page_title="CaseBridge", page_icon=":material/edit_note:", layout="wide")
@@ -51,6 +54,17 @@ ss.setdefault("my_case_id", None)
 ss.setdefault("hidden", set())     # statements the client chose to hide from lawyers (safety.fact_key)
 ss.setdefault("last_mic_id", None) # id of the last mic recording already added, to avoid re-processing
 ss.setdefault("toast", None)       # a one-off message to show after the next rerun
+ss.setdefault("owner", uuid.uuid4().hex)   # marks the cases this browser session posted, in the shared store
+
+
+@st.cache_resource
+def shared_store_ready() -> bool:
+    """Create the shared database once per server. False -> fall back to a per-session board."""
+    try:
+        store.init(SEED_BOARD)
+        return True
+    except Exception:
+        return False
 
 
 # --- look and feel ---------------------------------------------------------------------
@@ -100,6 +114,8 @@ CSS = """
 .cb-check-foot{font-size:.9rem;color:#4A5068;margin:.35rem 0 0;padding-top:.6rem;border-top:1px solid #E3E5EC}
 .cb-check-foot b{color:#1E2230}
 .st-key-checks h3.cb-h{margin-top:.1rem}
+.cb-list.cb-data li{grid-template-columns:11rem 1fr;gap:.85rem;align-items:start}
+.st-key-data h3.cb-h{margin-top:.1rem}
 .cb-redact{display:inline-block;padding:0 .4rem;border-radius:2px;background:#1E2230;color:#fff;font-size:.72rem;
   font-weight:700;letter-spacing:.03em;line-height:1.35rem;white-space:nowrap}
 ul.cb-list,ul.cb-why{list-style:none;margin:0;padding:0 !important}
@@ -436,8 +452,109 @@ def go(target: str):
     ss.nav = target
 
 
+@st.cache_resource
+def _brief_cache() -> dict:
+    return {}
+
+
+def build_brief(evidence: list) -> "CaseBrief":
+    """Same evidence and same engine -> the same brief, instantly. Granite on a laptop takes about a
+    minute, so a demo can build once beforehand. A brief whose model or fact check failed is not kept,
+    so the next build tries again. Each caller gets its own copy."""
+    key = (tuple((e.id, e.kind, e.title, e.text, e.file_name) for e in evidence), llm.backend(), llm.checker())
+    cache = _brief_cache()
+    if key not in cache:
+        b = brief_agent.build(evidence)
+        if any(w.startswith(("LLM unavailable", "The fact check")) for w in b.warnings):
+            return b
+        cache[key] = b
+    return copy.deepcopy(cache[key])
+
+
+# --- the lawyer board: shared database when available, this session's memory otherwise --------
+
+def board() -> list[dict]:
+    """Every posted case, newest first. With the shared store, a client window and a lawyer window
+    see the same cases."""
+    if shared_store_ready():
+        try:
+            return store.list_cases(ss.owner)
+        except Exception:
+            pass
+    return ss.board
+
+
+def post_case(red: dict) -> str:
+    red["posted"] = datetime.now().date().isoformat()
+    if shared_store_ready():
+        return store.add_case(red, ss.owner)
+    red.update(id=f"C-{1040 + len(ss.board)}", connect_requests=[], connected=[], mine=True)
+    ss.board.insert(0, red)
+    return red["id"]
+
+
+def request_connect(case: dict, lawyer_id: str):
+    if shared_store_ready():
+        store.request_connect(case["id"], lawyer_id)
+    else:
+        case["connect_requests"].append(lawyer_id)
+
+
+def accept_lawyer(case: dict, lawyer_id: str):
+    """Only now does the client's full brief leave their session, for the lawyers they accepted."""
+    if shared_store_ready():
+        store.accept(case["id"], lawyer_id, ss.brief.to_dict() if ss.brief else None)
+    else:
+        case["connect_requests"].remove(lawyer_id)
+        case["connected"].append(lawyer_id)
+
+
+def delete_my_case():
+    """Remove everything this client added: the posted case and its requests, and the evidence and brief."""
+    if ss.my_case_id:
+        if shared_store_ready():
+            store.delete_case(ss.my_case_id)
+        ss.board = [c for c in ss.board if c["id"] != ss.my_case_id]
+    ss.evidence, ss.brief, ss.sent_to, ss.hidden, ss.my_case_id = [], None, [], set(), None
+    ss.pop("fool_result", None)
+    ss.toast = "Your case was deleted from CaseBridge."
+    ss.nav = PAGES[0]         # a callback, so the page can still change before the rail is drawn
+
+
 def my_case() -> dict | None:
-    return next((c for c in ss.board if c["id"] == ss.my_case_id), None)
+    return next((c for c in board() if c["id"] == ss.my_case_id), None)
+
+
+def show_data_panel():
+    """Where your data goes, in plain words, and a way to delete it. Reflects the engine actually in use."""
+    backend, photos_out = llm.backend(), bool(os.environ.get("ANTHROPIC_API_KEY"))
+    sent = {"watsonx": "Your evidence text is sent to IBM watsonx so Granite can write the brief.",
+            "ollama": "Nothing for the brief: Granite runs on this computer."}.get(backend, "Nothing: the brief is "
+                                                                                          "built on this computer.")
+    if photos_out:
+        sent += " Photos you upload are sent to Claude vision (Anthropic) to read them, with their location removed."
+    local = ["redaction", "deadlines", "voice transcription (faster-whisper)"]
+    if llm.checker() and "local" in llm.checker():
+        local.append("the Granite Guardian fact check")
+    rows = [("On this computer", ", ".join(local).capitalize() + "."),
+            ("Sent to an AI service", sent),
+            ("What lawyers see", "Only the anonymized brief, until you accept one. The lawyer you accept sees your "
+                                 "full brief."),
+            ("What is saved", "Your case is saved on the lawyer board only if you post it. Deleting removes it, "
+                              "its requests and anything you shared.")]
+    with st.container(border=True, key="data"):
+        heading("Where your data goes")
+        st.html('<ul class="cb-list cb-data">' + "".join(
+            f'<li><span class="cb-check-name">{esc(k)}</span><span class="cb-check-detail">{esc(v)}</span></li>'
+            for k, v in rows) + "</ul>")
+        if backend == "watsonx":
+            meta("IBM's own data retention applies to what is sent to watsonx. LLM_BACKEND=ollama keeps everything "
+                 "on this computer.")
+        with st.popover("Delete my case", icon=":material/delete:"):
+            st.html('<p class="cb-meta">This removes your evidence, your brief and, if you posted it, your case and '
+                    'its connect requests from CaseBridge. It can\'t be undone.</p>')
+            st.button("Delete everything", key="delete_case", icon=":material/delete_forever:",
+                      on_click=delete_my_case)
 
 
 def evidence_names():
@@ -606,7 +723,7 @@ if page.startswith("1"):
                 voices = sum(e.kind == "voice" for e in ss.evidence)
                 st.write(f"Reading {len(ss.evidence)} pieces of evidence"
                          + (f", including {voices} voice memo{'s' if voices != 1 else ''}" if voices else ""))
-                ss.brief = brief_agent.build(ss.evidence)
+                ss.brief = build_brief(ss.evidence)
                 ss.hidden = set()
                 for k in [k for k in ss if str(k).startswith("hide_")]:
                     del ss[k]          # a new brief starts with nothing hidden
@@ -653,7 +770,7 @@ elif page.startswith("2"):
     with st.container(key="score"):
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Facts with a source", f"{stats['facts_cited']}/{stats['facts']}", border=True)
-        m2.metric("Legal advice given", stats["advice_given"], border=True)
+        m2.metric("Advice found in brief", stats["advice_given"], border=True)
         m3.metric("Details hidden from lawyers", stats["details_hidden"], border=True)
         m4.metric("Hidden instructions caught", stats["hidden_instructions"], border=True)
         st.progress(stats["readiness_pct"] / 100,
@@ -768,6 +885,8 @@ elif page.startswith("2"):
         with receipt:
             privacy_receipt(safety.hide_facts(dict(red), ss.hidden))
 
+    show_data_panel()
+
 
 # --- 3. Matches ------------------------------------------------------------------------
 
@@ -800,10 +919,7 @@ elif page.startswith("3"):
                     st.error("We stopped this post because some personal details could still be read. "
                              "Please hide the lines that mention them on your case brief and try again.")
                     st.stop()
-                red.update(id=f"C-{1040 + len(ss.board)}", posted=datetime.now().date().isoformat(),
-                           connect_requests=[], connected=[], mine=True)
-                ss.board.insert(0, red)
-                ss.my_case_id = red["id"]
+                ss.my_case_id = post_case(red)
                 ss.toast = "Your anonymized case is on the lawyer board. You choose who sees the rest."
                 st.rerun()
         else:
@@ -818,8 +934,7 @@ elif page.startswith("3"):
                 with c1:
                     state_note(f"<b>{esc(lw['name'])}</b> ({esc(lw['firm'])}) asked to connect about your case.")
                 if c2.button("Accept", key=f"acc_{lid}", type="primary", width="stretch"):
-                    case["connect_requests"].remove(lid)
-                    case["connected"].append(lid)
+                    accept_lawyer(case, lid)
                     st.rerun()
             for lid in case["connected"]:
                 lw = lawyers_by_id[lid]
@@ -844,6 +959,8 @@ elif page.startswith("3"):
                     ss.sent_to.append(lw["id"])
                     st.rerun()
 
+    show_data_panel()
+
 
 # --- Lawyer portal ---------------------------------------------------------------------
 
@@ -863,7 +980,7 @@ else:
         meta("Only cases in your practice areas and sides are shown, newest first, so no one gets skipped for "
              "being a 'small' case. Cases stay anonymized until the client accepts you.")
         county_only = st.toggle("Only my counties", value=True)
-        visible = [c for c in ss.board if c["case_type"] in me["practice_areas"]
+        visible = [c for c in board() if c["case_type"] in me["practice_areas"]
                    and c["client_side"] in me["sides"]
                    and (not county_only or c.get("county") in me["counties"])]
         if not visible:
@@ -872,7 +989,8 @@ else:
         for c in visible:
             with st.container(border=True, key=f"case_{c['id']}"):
                 connected = me["id"] in c["connected"]
-                shared = connected and c.get("mine") and ss.brief
+                # The full brief, only if the client accepted this lawyer (shared store, or this same session).
+                shared = connected and (c.get("shared_brief") or (c.get("mine") and ss.brief and ss.brief.to_dict()))
                 st.html(f'<div class="cb-case-head"><span class="cb-date">Posted {fmt_date(c["posted"])}</span>'
                         f'<strong>{esc(c["id"])}</strong><span>{esc(PRACTICE_AREAS[c["case_type"]])}</span>'
                         f'<span>{esc(c["client_side"].capitalize())}</span>'
@@ -881,8 +999,8 @@ else:
                         f'{"" if shared else "<span class=cb-redact>Anonymized</span>"}</div>')
                 if shared:
                     state_note("<b>Connected.</b> The client shared their identity and full brief with you.")
-                    lead(ss.brief.summary)
-                    show_facts("Parties", ss.brief.parties)
+                    lead(shared["summary"])
+                    show_facts("Parties", shared["parties"])
                 else:
                     lead(c["summary"])
                     if c.get("timeline"):
@@ -893,7 +1011,7 @@ else:
                 elif me["id"] in c["connect_requests"]:
                     st.button("Request sent", disabled=True, key=f"req_{c['id']}", icon=":material/schedule:")
                 elif st.button("Request to connect", key=f"req_{c['id']}", icon=":material/person_add:"):
-                    c["connect_requests"].append(me["id"])
+                    request_connect(c, me["id"])
                     st.rerun()
     with tab_inbox:
         if me["id"] in ss.sent_to and ss.brief:

@@ -72,6 +72,34 @@ without a matching `E1`/`E2`/… source the fact never reaches the output.
 |----------------|------|
 | Uncited AI fact is dropped | [`test_uncited_facts_are_dropped`](../tests/test_pipeline.py) |
 
+**A citation is not enough, so two more checks read what the fact says:**
+
+- **Numbers check** ([`check_numbers`](../casebridge/safety.py), all modes): every number in a
+  statement (speed, amount, date, time) must appear in the evidence it cites. "17:42" also
+  supports "5:42 pm". Failing statements stay in the brief with a review mark.
+- **Granite Guardian** ([`llm.guardian_check`](../casebridge/llm.py),
+  [`_apply_guardian`](../casebridge/brief.py)): a second IBM model reads each reworded statement
+  against the evidence it cites, using Guardian's own groundedness definition and prompt format.
+  It runs locally through Ollama (`granite3-guardian:2b`), because IBM withdrew Guardian from
+  watsonx on 2026-09-30; with watsonx and no local Guardian, Granite on watsonx answers the same
+  Yes/No question, and the brief names which checker ran. Exact quotes from the cited evidence
+  skip the model check (they are grounded by definition; Guardian made one false positive on a
+  quote). Guardian is not used for legal advice: in testing the 2B model flagged quoted insurer
+  letters as advice.
+
+The brief page shows all four checks in **How this brief was checked**, and **Try to fool it**
+runs three made-up statements through them live.
+
+| What is tested | Test |
+|----------------|------|
+| Invented number caught; formats match ("17:42" vs "5:42 pm", "$4,850.00" vs "$4850") | [`test_fact_check.py`](../tests/test_fact_check.py) |
+| Guardian prompt format, Yes/No parsing, local vs watsonx checker, errors never raise | [`test_fact_check.py`](../tests/test_fact_check.py) |
+| Only groundedness goes to Guardian; exact quotes skip it | [`test_guardian.py`](../tests/test_guardian.py), [`test_fact_check.py`](../tests/test_fact_check.py) |
+
+Live result (not a benchmark): on 5 hand-written statements about Maria's case, Guardian 2B
+marked all 3 true ones supported and caught both invented facts, including one with no number
+("Maria broke her arm").
+
 ---
 
 ## 3. Personal-data redaction, privacy receipt, and posting gate
@@ -233,4 +261,4 @@ What is still open:
   discovery, the lawsuit deadline after a government claim is rejected) are not handled. Every
   date is labelled "confirm with a lawyer". See [`docs/LEGAL_RULES.md`](LEGAL_RULES.md).
 
-Current suite: **581 passed, 0 xfailed, 0 failed** (`pytest -q`).
+Current suite: run `pytest -q`. The README's status table shows the latest count, updated on every push to `main`.

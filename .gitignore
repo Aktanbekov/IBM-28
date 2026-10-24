@@ -278,3 +278,7 @@ Thumbs.db
 
 # Impeccable's engine is a ~17 MB platform-specific binary per skill folder; the launcher downloads it on first run
 */skills/impeccable/scripts/bin/
+
+# Shared demo database (posted cases); recreated on start
+data/casebridge.db
+data/casebridge.db-*

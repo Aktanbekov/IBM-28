@@ -29,7 +29,8 @@ Turn hours of confused intake into **two minutes of reading**, and get people to
 actually handles their kind of case, while keeping the AI honest, private and free of legal advice.
 
 ## What it does
-1. **Intake:** the person uploads anything (notes, photos with captions, PDFs, voice-memo transcripts).
+1. **Intake:** the person adds anything: typed notes, photos with captions, PDFs, and voice memos (recorded in
+   the browser or uploaded, transcribed on the laptop with faster-whisper).
    Each item gets an evidence id (`E1`, `E2`, …).
 2. **Case brief:** an AI agent builds a timeline, the people involved, injuries, losses, key deadlines
    and a list of missing evidence. **Every statement cites the evidence it came from.**
@@ -37,12 +38,15 @@ actually handles their kind of case, while keeping the AI honest, private and fr
 4. **Matching:** lawyers are filtered by practice area and by which side they represent, then ranked,
    and every match shows why.
 5. **Lawyer portal:** lawyers browse **anonymized** cases and request to connect. The client's
-   identity is shared only after the client accepts.
+   identity is shared only after the client accepts. Cases, requests and the 24 fictional lawyers live in
+   a small shared database (SQLite), so a client window and a lawyer window see the same board.
+6. **Where your data goes:** the brief page says what stays on the computer, what is sent to an AI
+   service and what lawyers see, and **Delete my case** removes the case, its requests and anything shared.
 
 ## Responsible AI by design
 | Risk | What we built |
 |---|---|
-| AI invents facts | Every fact must cite evidence; uncited ones are removed. Numbers must appear in the cited evidence. Granite Guardian checks each fact against its sources. |
+| AI invents facts | Every fact must cite evidence; uncited ones are removed. Numbers must appear in the cited evidence. Granite Guardian checks each reworded fact against its sources; exact quotes need no model check. |
 | A bot giving legal advice | A guardrail blocks outcome predictions, "you should sign or settle", and case valuations |
 | Sensitive data exposure | Names, phones, emails, date of birth, plates and report numbers are redacted until the client accepts a lawyer |
 | Lawyers skip "small" cases | No case-value score exists. The lawyer board is sorted by date only. |
@@ -80,6 +84,10 @@ The app works fully offline with a rule-based engine. To use IBM Granite:
 | Local Granite via Ollama | `ollama pull granite3.3` |
 | Force a backend | `LLM_BACKEND=watsonx`, `ollama` or `rules` |
 
+Run everything on the laptop: `ollama pull granite3.3 granite3-guardian:2b`, then
+`LLM_BACKEND=ollama streamlit run app.py`. Granite takes about a minute per brief on a laptop; the app keeps
+each finished brief, so building the same evidence again is instant (build once before a demo).
+
 Check your setup in one command: `python -m casebridge.llm`. It shows the backend and model, makes
 one real chat call, and runs the fact check on a supported and a made-up statement.
 
@@ -110,6 +118,7 @@ casebridge/llm.py       watsonx.ai / Ollama client (standard library only)
 casebridge/brief.py     The agent pipeline: rules -> Granite -> guardrails
 casebridge/safety.py    Citation enforcement, advice guardrail, PII redaction
 casebridge/matching.py  Explainable lawyer matching
+casebridge/store.py     Shared SQLite store: lawyers, posted cases, connect requests
 data/                   Fictional demo case and fictional lawyer profiles
 .streamlit/config.toml  App theme (colours, font); serves static/ so the font works offline
 static/fonts/           Atkinson Hyperlegible font files (SIL Open Font License)
@@ -133,8 +142,15 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
   (*Jackson v. LegalMatch*, 2019). CaseBridge is designed so the client owns their brief and chooses
   who sees it, with no referral fees. The production path is partnering with State Bar–certified
   referral services, or licensing the brief tool to law firms for intake.
-- Photos and audio rely on captions or transcripts for now. Next: speech-to-text and a vision model.
-- Redaction is pattern-based. Next: a named-entity model plus Granite Guardian checks on output.
+- **Photos** use the client's caption. Optional automatic photo reading sends the photo (GPS stripped first)
+  to a third-party model, Claude vision, when `ANTHROPIC_API_KEY` is set. It is off by default, off in our demo,
+  and not part of the IBM path. Next: Granite Vision, reading the photo's text word for word as evidence.
+- **Granite Guardian runs locally** through Ollama, because IBM withdrew it from watsonx on 2026-09-30. It
+  checks groundedness only; in testing the 2B model flagged quoted insurer letters as advice, so legal advice
+  is caught by the rules guardrail.
+- **watsonx:** the integration picks a current Granite model from IBM's live model list. If watsonx is the
+  backend, evidence text is sent to it as written; `LLM_BACKEND=ollama` keeps everything on the laptop.
+- Redaction is pattern-based. Next: a named-entity model.
 - Deadlines cover general California rules only.
 - All people, lawyers and cases in `data/` are fictional.
 

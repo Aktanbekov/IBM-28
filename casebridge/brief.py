@@ -10,6 +10,7 @@ Deadlines and the missing-evidence checklist stay deterministic on purpose.
 """
 from __future__ import annotations
 
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 from . import llm, rules
@@ -86,6 +87,19 @@ def _is_quote(fact: Fact, ev_map: dict[str, str]) -> bool:
     return any(_norm(fact.text) in _norm(ev_map.get(s, "")) for s in fact.sources)
 
 
+_WORD_RE = re.compile(r"[a-z0-9$,.]+")
+
+
+def _focused_context(fact: Fact, evidence: dict[str, Evidence], k: int = 3) -> str:
+    """The k sentences of the cited evidence that share the most words with the statement.
+    Guardian 2B judged whole documents worse: on Maria's case it flagged 2 of 6 true paraphrases with
+    whole documents and 1 of 6 with these sentences, and caught all 5 invented facts either way."""
+    def words(text: str) -> set[str]:
+        return {w for w in _WORD_RE.findall(text.lower()) if len(w) > 2}
+    sents = [x for s in fact.sources if s in evidence for x in rules.sentences(evidence[s])]
+    return " ".join(sorted(sents, key=lambda x: -len(words(x) & words(fact.text)))[:k])
+
+
 def _apply_guardian(brief: CaseBrief, evidence: list[Evidence], checker: str = "Granite Guardian") -> None:
     """Second-model groundedness check (see llm.guardian_check): each statement against the evidence
     it cites, and a model-written summary against all evidence.
@@ -99,7 +113,8 @@ def _apply_guardian(brief: CaseBrief, evidence: list[Evidence], checker: str = "
     all_facts = [f for section in _SECTIONS for f in getattr(brief, section)]
     quotes = sum(_is_quote(f, ev_map) for f in all_facts)
     facts = [f for f in all_facts if not _is_quote(f, ev_map)]   # only reworded statements can drift
-    jobs = [(f.text, GROUNDEDNESS_RISK, " ".join(ev_map[s] for s in f.sources if s in ev_map)) for f in facts]
+    ev_by_id = {e.id: e for e in evidence}
+    jobs = [(f.text, GROUNDEDNESS_RISK, _focused_context(f, ev_by_id)) for f in facts]
     if brief.engine != "rules":   # the rules summary states counts the app computed, not claims
         jobs.append((brief.summary, GROUNDEDNESS_RISK, " ".join(ev_map.values())))
     cache: dict[tuple[str, str, str], bool | None] = {}

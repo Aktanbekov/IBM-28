@@ -59,8 +59,8 @@ lawyer, and the person reaches a lawyer who takes their kind of case, without th
   - No sorting or ranking of cases by expected payout.
   - Anything on the lawyer board goes through redaction until the client accepts.
   - The client confirms case type, side and county, and chooses who sees their brief.
-- Not built yet: speech-to-text for voice memos and a vision model for photos (both rely on typed
-  captions or transcripts today).
+- Voice memos are transcribed on the laptop (faster-whisper). Photos rely on the client's caption; optional
+  automatic photo reading uses a third-party model and is off by default. Not built yet: Granite Vision.
 - Undecided: translating the interface beyond English.
 
 ## Brand Commitments

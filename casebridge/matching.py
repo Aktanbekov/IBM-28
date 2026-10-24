@@ -7,6 +7,8 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
+from . import store
+
 LAWYERS_FILE = Path(__file__).resolve().parent.parent / "data" / "lawyers.json"
 
 
@@ -17,8 +19,15 @@ def _lawyers_from_disk() -> tuple[dict, ...]:
 
 
 def load_lawyers() -> list[dict]:
-    """The lawyer directory, read from disk once. Each call gets its own copy, so a caller
-    that edits a profile can't change what the next caller sees."""
+    """The lawyer directory, from the shared database (casebridge.store), or straight from
+    lawyers.json if the database can't be read, so matching never breaks on it. Each call gets its
+    own copy, so a caller that edits a profile can't change what the next caller sees."""
+    try:
+        lawyers = store.load_lawyers()
+        if lawyers:
+            return lawyers
+    except Exception:
+        pass
     return copy.deepcopy(list(_lawyers_from_disk()))
 
 

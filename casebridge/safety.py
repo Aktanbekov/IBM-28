@@ -146,8 +146,15 @@ def _numbers(text: str) -> set[str]:
     return found
 
 
+_MONTH_NUMBERS = {m: str(i) for i, m in enumerate(
+    "january february march april may june july august september october november december".split(), 1)}
+_MONTH_NAME_RE = re.compile(r"\b(" + "|".join(f"{m}|{m[:3]}" for m in _MONTH_NUMBERS) + r")\b\.?", re.I)
+
+
 def _evidence_numbers(text: str) -> set[str]:
     found = _numbers(text)
+    for m in _MONTH_NAME_RE.findall(text):   # "October 2" also supports "10/2"
+        found.add(next(v for k, v in _MONTH_NUMBERS.items() if k.startswith(m.lower())))
     for h, _ in re.findall(r"\b(\d{1,2}):(\d{2})\b", text):   # 17:42 also supports "5:42 pm"
         h = int(h)
         found |= {str(h % 12 or 12), str(h + 12 if h < 12 else h)}

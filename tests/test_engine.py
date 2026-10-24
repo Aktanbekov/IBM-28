@@ -259,11 +259,10 @@ def test_bao_only_matches_vietnamese_lawyer():
     ev, b = bao()
     results, excluded = matching.match(b.case_type, b.client_side, b.county,
                                        rules.detect_languages(ev))
-    # L4 Minh Tran is the only lawyer who speaks Vietnamese AND handles auto_accident plaintiff
-    # in Santa Clara County.
-    assert len(results) == 1
-    assert results[0]["id"] == "L4"
-    assert "Vietnamese" in results[0]["languages"]
+    # Bao speaks only Vietnamese, so only Vietnamese-speaking auto_accident plaintiff lawyers show:
+    # L4 Minh Tran and L17 Lien Phan.
+    assert {r["id"] for r in results} == {"L4", "L17"}
+    assert all("Vietnamese" in r["languages"] for r in results)
     assert excluded["language"] >= 1          # lawyers without Vietnamese were excluded
 
 
