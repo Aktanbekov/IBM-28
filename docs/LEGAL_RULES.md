@@ -27,8 +27,8 @@ out.append({"label": "General personal-injury filing deadline (CA, 2 years)",
 
 **Assessment:** The calendar arithmetic is correct for the common case (e.g., October 14, 2026 →
 October 14, 2028). No adjustment is made if the computed date falls on a weekend or court holiday;
-in practice `date.replace()` will raise a `ValueError` only if the original day is February 29 in
-a leap year and the target year is not a leap year — CaseBridge does not guard for this.
+a February 29 incident used to crash the calculation. *Fixed Oct 24: the date moves to the last
+day of the month (February 28), the earlier of the two possible dates.*
 
 ### Exceptions CaseBridge does NOT handle
 | Exception | Statute | Effect |
@@ -106,9 +106,9 @@ def plus(years=0, months=0):
 ```
 
 **Assessment:** The arithmetic is correct for the 12 common cases (January + 6 = July, etc.).
-However, `date.replace()` does not clip the day — if the incident date is August 31 and the
-target month (February) has fewer days, Python will raise `ValueError`. This edge case is not
-handled. The 6-month calculation also does not follow any "next-business-day" rule.
+An incident on August 31 used to crash, because February has no 31st. *Fixed Oct 24: the day is
+clipped to the last day of the target month (February 28), so the date shown is never later
+than the real one.* The 6-month calculation also does not follow any "next-business-day" rule.
 
 **Important framing gap:** The label says "6 months" but does not distinguish the
 *claim-presentation* deadline from the *lawsuit-filing* deadline after rejection (§ 945.6).
@@ -169,7 +169,7 @@ deadlines but cannot detect these cases automatically.
 - **Dog-bite strict liability scope (Civil Code § 3342):** Strict liability applies only to bites. Other dog-caused injuries (e.g. knocked down by a jumping dog) may require proving negligence. CaseBridge does not distinguish bite from non-bite dog-injury cases.
 - **UM/UIM claim deadlines:** Uninsured and underinsured motorist claims are governed by the insurance policy contract, not solely by CCP § 335.1. Policy deadlines can be shorter and must be read case by case.
 - **Wrongful death:** A separate SOL (CCP § 335.1, 2 years from date of death) applies; the decedent's personal injury claim may have a different clock. CaseBridge has no wrongful-death case type.
-- **February 29 leap-year edge case:** `date.replace(year=...)` will raise `ValueError` if the incident date is February 29 and the target year is not a leap year. This is not handled in `rules.py`.
+- **February 29 and month-end edge cases:** fixed Oct 24. `rules.deadlines` clips the day to the end of the month instead of raising `ValueError` (tested in `tests/test_bao_fixes.py`).
 - **Weekend / holiday adjustment:** CaseBridge does not roll SOL dates forward to the next court day. Clients should confirm exact dates.
 
 ---

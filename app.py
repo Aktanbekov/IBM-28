@@ -347,6 +347,9 @@ if page.startswith("1"):
         if st.button("Load demo case (Rosa)", icon=":material/folder_open:"):
             ss.evidence = ingest.load_demo_case("rosa")
             ss.brief = None
+        if st.button("Load demo case (Bao)", icon=":material/folder_open:"):
+            ss.evidence = ingest.load_demo_case("bao")
+            ss.brief = None
         if st.button("Clear", icon=":material/restart_alt:", type="tertiary"):
             ss.evidence, ss.brief = [], None
 
@@ -354,6 +357,14 @@ if page.startswith("1"):
         note = st.text_area("In your own words (any language, any order)", height=120)
 
         # --- In-browser mic recording -------------------------------------------
+        # Short recordings make Whisper guess the language, and a wrong guess loses what the
+        # client actually said. Letting them pick it fixes that; "Detect automatically" is default.
+        spoken = st.pills("Which language will you speak?", list(ingest.SPOKEN_LANGUAGES),
+                          default="Detect automatically", key="spoken_language")
+        voice_lang = ingest.SPOKEN_LANGUAGES.get(spoken)   # None = detect automatically
+        st.caption("CaseBridge turns speech into text itself, without sending it to an outside service. "
+                   "We keep your own words and add "
+                   "an English version for lawyers.")
         try:
             from streamlit_mic_recorder import mic_recorder
             recording = mic_recorder(
@@ -366,7 +377,7 @@ if page.startswith("1"):
             if recording and recording.get("id") != ss.last_mic_id:
                 ss.last_mic_id = recording["id"]
                 with st.spinner("Transcribing your recording…"):
-                    ev = ingest.voice_evidence(recording["bytes"], "mic_recording.webm")
+                    ev = ingest.voice_evidence(recording["bytes"], "mic_recording.webm", voice_lang)
                 ss.evidence = ingest.number(ss.evidence + [ev])
                 ss.brief = None
                 st.rerun()
@@ -395,7 +406,7 @@ if page.startswith("1"):
                     text = ingest.pdf_text(data)
                 elif kind == "voice":
                     with st.spinner(f"Transcribing {up.name}…"):
-                        ev = ingest.voice_evidence(data, up.name)
+                        ev = ingest.voice_evidence(data, up.name, voice_lang)
                     if captions.get(up.name):      # the client typed or corrected the transcript
                         ev.text = captions[up.name]
                         # Update the title whenever the client provided their own text,
@@ -548,7 +559,7 @@ elif page.startswith("3"):
         st.stop()
 
     results, excluded = matching.match(b.case_type, b.client_side, b.county or None, b.languages)
-    lead(f"Showing {len(results)} lawyers who handle {PRACTICE_AREAS[b.case_type].lower()} cases for "
+    lead(f"Showing {len(results)} lawyer{'' if len(results) == 1 else 's'} who handle{'s' if len(results) == 1 else ''} {PRACTICE_AREAS[b.case_type].lower()} cases for "
          f"{SIDE_PLAIN[b.client_side]}.")
     meta(f"Hidden: {excluded['practice_area']} with a different practice area, {excluded['side']} who only "
          "represent the other side"

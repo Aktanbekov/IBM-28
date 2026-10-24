@@ -121,7 +121,7 @@ empty because `redact_brief` already fails closed; the gate is a second lock.
 | Apostrophe name (`O'Brien`) not leaked | [`test_apostrophe_name_redacted`](../tests/test_bob_edge_cases.py) |
 | All-lowercase transcript name not leaked | [`test_lowercase_name_redacted`](../tests/test_bob_edge_cases.py) |
 | `find_leaks` catches apostrophe name surviving redaction | [`test_find_leaks_catches_apostrophe_name`](../tests/test_bob_edge_cases.py) |
-| Red-team: OCR, split phones, DOB variants, email, address | [`tests/test_bob_redteam.py`](../tests/test_bob_redteam.py) (22 pass; 16 known gaps marked `xfail`) |
+| Red-team: OCR, split phones, DOB variants, email, address | [`tests/test_bob_redteam.py`](../tests/test_bob_redteam.py) (52 tests, all pass) and [`tests/test_redteam_fixes.py`](../tests/test_redteam_fixes.py) |
 
 ---
 
@@ -134,13 +134,18 @@ obeys them.
 
 **How it works:**
 
-[`INJECTION_PATTERNS`](../casebridge/safety.py) is a list of nine regex patterns covering:
+[`INJECTION_PATTERNS`](../casebridge/safety.py) is a list of regex patterns covering:
 
 - instruction-cancellation: `"ignore … previous … instructions"`, `"new system prompt"`, `"system prompt"`
 - role-play / jailbreak: `"you are now a lawyer"`, `"act as my legal advisor"`, `"pretend to be"`, `"jailbreak"`, `"DAN mode"`
 - LLM-addressed directives: `"AI: say …"`, `"write: case is worth"`
 - chat-template tokens: `<|system|>`, `[INST]`, `assistant:` at line start
-- Spanish equivalents: `"ignora … instrucciones"`
+- Spanish and Vietnamese equivalents: `"ignora … instrucciones"`, `"bỏ qua … hướng dẫn"`, `"đóng vai luật sư"`
+
+[`has_injection(text)`](../casebridge/safety.py) runs these patterns on a normalized copy of the
+text: invisible zero-width characters removed, Cyrillic and Greek look-alike letters mapped to
+Latin ones, and accents dropped. So `"іgnore"` (Cyrillic і) and `"i\u200bgnore"` are still caught.
+The evidence people see is never changed.
 
 [`injection_flags(evidence)`](../casebridge/safety.py) returns the IDs of flagged items.
 [`injection_warnings(evidence)`](../casebridge/safety.py) adds one plain-language warning per
@@ -155,7 +160,7 @@ inside the text is neutralized, and items that matched `INJECTION_RE` get a
 
 | What is tested | Test |
 |----------------|------|
-| 20 adversarial attack strings detected | [`tests/test_bob_injection.py`](../tests/test_bob_injection.py) `TestAttackTexts` (14 pass; 6 known gaps marked `xfail`) |
+| 29 adversarial attack strings detected | [`tests/test_bob_injection.py`](../tests/test_bob_injection.py) `TestAttackTexts` (all pass) and [`tests/test_injection_fixes.py`](../tests/test_injection_fixes.py) |
 | 10 benign strings not flagged | [`tests/test_bob_injection.py`](../tests/test_bob_injection.py) `TestBenignTexts` |
 | Injection detected, its fake advice never reaches the brief | [`test_injection_is_flagged_and_its_advice_never_reaches_the_brief`](../tests/test_features.py) |
 | `wrap_evidence` neutralizes `</evidence>` escape attempt | [`tests/test_bob_injection.py`](../tests/test_bob_injection.py) `TestWrapEvidence` |
@@ -203,16 +208,17 @@ overwritten by LLM output.
 
 ## Known limitations (honest, not a surprise)
 
-- Six injection patterns are not yet detected (Unicode homoglyphs, zero-width spaces, hard
-  newline splits, Vietnamese). These are marked `xfail` in
-  [`tests/test_bob_injection.py`](../tests/test_bob_injection.py).
-- Sixteen redaction patterns are not yet handled (OCR digit substitution, email with unusual
-  encoding, P.O. Box addresses, European DOB formats). Marked `xfail` in
-  [`tests/test_bob_redteam.py`](../tests/test_bob_redteam.py).
-- `date.replace()` will raise `ValueError` on a February 29 incident date when the target year
-  is not a leap year. Documented in [`docs/LEGAL_RULES.md`](LEGAL_RULES.md).
-- The `detect_county` regex can absorb preceding words for multi-word county names preceded by a
-  sentence. Documented as `xfail` in [`tests/test_bob_coverage.py`](../tests/test_bob_coverage.py).
+Bob's red-team and coverage sessions found 38 gaps: 6 hidden-instruction tricks (look-alike
+letters, zero-width spaces, line breaks, Vietnamese), 30 redaction leaks (OCR digits such as
+"Mar1a", nicknames, P.O. boxes, European dates) and 2 county-detection bugs. All 38 are fixed and
+run as normal tests. Review also found and fixed a crash on month-end and February 29 incident
+dates.
 
-All known gaps are tracked as `xfail` tests so they surface automatically if a fix is merged.
-Current suite: **284 passed, 38 xfailed, 0 failed**.
+What is still open:
+- Redaction and injection detection are pattern-based. A new phrasing or format can still slip
+  through; the leak check and the client's preview are the backstops, not a guarantee.
+- Deadlines don't move for weekends or court holidays, and exceptions (minors, delayed
+  discovery, the lawsuit deadline after a government claim is rejected) are not handled. Every
+  date is labelled "confirm with a lawyer". See [`docs/LEGAL_RULES.md`](LEGAL_RULES.md).
+
+Current suite: **395 passed, 0 xfailed, 0 failed** (`pytest -q`).

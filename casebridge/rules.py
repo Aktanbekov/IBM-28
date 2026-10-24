@@ -2,6 +2,7 @@
 deadlines and missing-evidence checks even when an LLM writes the narrative."""
 from __future__ import annotations
 
+import calendar
 import re
 from datetime import date, datetime
 
@@ -16,7 +17,7 @@ CASE_KEYWORDS = {
     "premises": ["slipped", "slip", "fell", "wet floor", "store", "stairs", "premises"],
     "dog_bite": ["dog", "bite", "bit me"],
     "workplace": ["at work", "my employer", "on the job", "workers comp", "forklift"],
-    "medical": ["surgery", "misdiagnos", "doctor made", "malpractice", "wrong medication"],
+    "medical": ["surgery", "misdiagnosed", "misdiagnosis", "doctor made", "malpractice", "wrong medication"],
 }
 DEFENSE_CUES = ["i hit", "i rear-ended", "suing me", "sued me", "lawsuit against me",
                 "claim against me", "my fault", "i ran the light"]
@@ -86,9 +87,14 @@ def all_text(evidence: list[Evidence]) -> str:
     return " ".join(e.text for e in evidence).lower()
 
 
+def _count_words(text: str, phrase: str) -> int:
+    """Whole-word count, so "car" doesn't match "urgent care", "scar" or "card"."""
+    return len(re.findall(rf"\b{re.escape(phrase)}\b", text))
+
+
 def detect_case_type(evidence: list[Evidence]) -> str:
     text = all_text(evidence)
-    scores = {k: sum(text.count(w) for w in words) for k, words in CASE_KEYWORDS.items()}
+    scores = {k: sum(_count_words(text, w) for w in words) for k, words in CASE_KEYWORDS.items()}
     best = max(scores, key=scores.get)
     return best if scores[best] > 0 else "other"
 
@@ -119,13 +125,28 @@ def detect_languages(evidence: list[Evidence]) -> list[str]:
     return found + (["English"] if english else [])
 
 
+# All 58 California counties. Matching against a fixed list stops "Fremont is in Alameda County"
+# from returning "Fremont Is In Alameda", and "a county vehicle" from returning "A".
+CA_COUNTIES = [
+    "Alameda", "Alpine", "Amador", "Butte", "Calaveras", "Colusa", "Contra Costa", "Del Norte",
+    "El Dorado", "Fresno", "Glenn", "Humboldt", "Imperial", "Inyo", "Kern", "Kings", "Lake", "Lassen",
+    "Los Angeles", "Madera", "Marin", "Mariposa", "Mendocino", "Merced", "Modoc", "Mono", "Monterey",
+    "Napa", "Nevada", "Orange", "Placer", "Plumas", "Riverside", "Sacramento", "San Benito",
+    "San Bernardino", "San Diego", "San Francisco", "San Joaquin", "San Luis Obispo", "San Mateo",
+    "Santa Barbara", "Santa Clara", "Santa Cruz", "Shasta", "Sierra", "Siskiyou", "Solano", "Sonoma",
+    "Stanislaus", "Sutter", "Tehama", "Trinity", "Tulare", "Tuolumne", "Ventura", "Yolo", "Yuba",
+]
+_COUNTY_NAMES = "|".join(re.escape(c.lower()) for c in sorted(CA_COUNTIES, key=len, reverse=True))
+COUNTY_RE = re.compile(rf"\b(?:({_COUNTY_NAMES})\s+county|county\s+of\s+({_COUNTY_NAMES}))\b")
+
+
 def detect_county(evidence: list[Evidence]) -> str | None:
+    """The first California county named in the evidence ("Santa Clara County", "County of
+    Alameda"), else the county of a known city. None if unclear; the client confirms it."""
     text = all_text(evidence)
-    m = re.search(r"([a-z ]+?) county", text)
+    m = COUNTY_RE.search(text)
     if m:
-        name = m.group(1).strip().split(",")[-1].strip().title()
-        if name:
-            return name
+        return (m.group(1) or m.group(2)).title()
     for city, county in CITY_TO_COUNTY.items():
         if city in text:
             return county
@@ -169,9 +190,22 @@ def collect(evidence: list[Evidence], predicate) -> list[Fact]:
     return facts
 
 
+# A client hit while walking has no car to repair, so the repair estimate doesn't apply.
+ON_FOOT_RE = re.compile(r"\b(pedestrian|crosswalk|on foot|walking across)\b", re.I)
+OWN_VEHICLE_RE = re.compile(r"\bmy (car|vehicle|truck|van|suv|motorcycle|bike|bicycle)\b", re.I)
+
+
+def on_foot(evidence: list[Evidence]) -> bool:
+    """True if the client was a pedestrian and never mentions a vehicle of their own."""
+    text = " ".join(e.text for e in evidence)
+    return bool(ON_FOOT_RE.search(text)) and not OWN_VEHICLE_RE.search(text)
+
+
 def missing_evidence(evidence: list[Evidence], case_type: str) -> list[str]:
     missing = []
     for label, kind, words in CHECKLIST.get(case_type, DEFAULT_CHECKLIST):
+        if label == "Written repair estimate" and on_foot(evidence):
+            continue
         pool = [e for e in evidence if kind is None or e.kind == kind]
         if label.startswith("Witness"):
             # A witness is only "covered" if we actually have a way to reach them.
@@ -195,7 +229,12 @@ def deadlines(evidence: list[Evidence], case_type: str) -> list[dict]:
         def plus(years=0, months=0):
             m = start.month - 1 + months
             y = start.year + years + m // 12
-            return start.replace(year=y, month=m % 12 + 1).isoformat()
+            month = m % 12 + 1
+            # Aug 31 + 6 months has no Feb 31, and Feb 29 + 2 years has no Feb 29: use the last
+            # day of that month. That is the earlier of the two possible dates, so it never
+            # shows a deadline later than the real one.
+            day = min(start.day, calendar.monthrange(y, month)[1])
+            return date(y, month, day).isoformat()
         out.append({"label": "General personal-injury filing deadline (CA, 2 years)",
                     "date": plus(years=2), "basis": "Cal. Code Civ. Proc. § 335.1"})
         if case_type == "auto_accident":

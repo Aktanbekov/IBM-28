@@ -17,8 +17,12 @@ class FakeWhisper:
     - task="translate"   → English translation of Spanish audio
     - task="transcribe"  → original-language transcript (Spanish)
     """
-    def transcribe(self, audio, task, vad_filter):
+    def __init__(self):
+        self.calls = []   # (task, language) for each call, so tests can check what was asked
+
+    def transcribe(self, audio, task, vad_filter, language=None):
         assert task in ("translate", "transcribe")
+        self.calls.append((task, language))
         info = SimpleNamespace(language="es", language_probability=0.92)
         if task == "translate":
             segs = [SimpleNamespace(text=" I slipped on a wet floor at the store."),
@@ -211,7 +215,7 @@ def test_bilingual_client_sees_everyone_with_shared_language_ranked_up():
 
 
 def test_unclear_language_still_counts_as_transcribed(monkeypatch):
-    monkeypatch.setattr(ingest, "transcribe", lambda data, name: ("Some words.", None))
+    monkeypatch.setattr(ingest, "transcribe", lambda data, name, language=None: ("Some words.", None))
     assert "language unclear" in ingest.voice_evidence(b"x", "memo.m4a").title
 
 
@@ -274,3 +278,32 @@ def test_bao_lawyer_view_has_no_personal_details():
     raw = " ".join(safety.redact(e.text, names) for e in ev)
     for secret in BAO_SECRETS:
         assert secret not in raw, f"{secret!r} leaked from raw redacted evidence"
+
+
+# --- the client can say which language they'll speak ---------------------------------------
+
+def test_chosen_language_is_passed_to_whisper(monkeypatch):
+    fake = FakeWhisper()
+    monkeypatch.setattr(ingest, "_load_whisper", lambda: fake)
+    text, lang = ingest.transcribe(b"fake-audio", "mic.webm", language="es")
+    assert lang == "Spanish"
+    assert fake.calls == [("translate", "es"), ("transcribe", "es")]
+    assert "Original (Spanish): Me resbalé" in text
+
+
+def test_chosen_language_skips_the_unsure_detection(monkeypatch):
+    class Unsure(FakeWhisper):
+        def transcribe(self, audio, task, vad_filter, language=None):
+            segs, info = super().transcribe(audio, task, vad_filter, language)
+            info.language, info.language_probability = "en", 0.3   # a short clip: Whisper guesses
+            return segs, info
+    monkeypatch.setattr(ingest, "_load_whisper", lambda: Unsure())
+    assert ingest.transcribe(b"x", "mic.webm")[1] is None             # auto: unclear
+    text, lang = ingest.transcribe(b"x", "mic.webm", language="vi")   # chosen: trusted
+    assert lang == "Vietnamese" and "Original (Vietnamese):" in text
+    assert "originally in Vietnamese" in ingest.voice_evidence(b"x", "mic.webm", "vi").title
+
+
+def test_every_language_choice_is_one_matching_understands():
+    for label, code in ingest.SPOKEN_LANGUAGES.items():
+        assert code is None or code in ingest.LANGUAGE_NAMES, label

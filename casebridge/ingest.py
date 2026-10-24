@@ -21,6 +21,15 @@ LANGUAGE_NAMES = {
     "en": "English", "es": "Spanish", "vi": "Vietnamese", "tl": "Tagalog", "zh": "Mandarin",
     "ko": "Korean", "ar": "Arabic", "hi": "Hindi", "ta": "Tamil", "pt": "Portuguese", "ru": "Russian",
 }
+# Choices for "Which language will you speak?" in the app, each shown in its own language.
+# Telling Whisper the language skips auto-detection, which often guesses wrong on short
+# recordings (and then the original-language transcript is lost).
+SPOKEN_LANGUAGES = {
+    "Detect automatically": None, "English": "en", "Español (Spanish)": "es",
+    "Tiếng Việt (Vietnamese)": "vi", "中文 (Mandarin)": "zh", "Tagalog": "tl", "한국어 (Korean)": "ko",
+    "العربية (Arabic)": "ar", "हिन्दी (Hindi)": "hi", "தமிழ் (Tamil)": "ta", "Português (Portuguese)": "pt",
+    "Русский (Russian)": "ru",
+}
 _whisper_model = None
 _whisper_error: Exception | None = None   # remembered so a missing model doesn't stall every upload
 
@@ -50,8 +59,11 @@ def _load_whisper():
     return _whisper_model
 
 
-def transcribe(data: bytes, file_name: str = "audio.m4a") -> tuple[str, str | None]:
+def transcribe(data: bytes, file_name: str = "audio.m4a",
+               language: str | None = None) -> tuple[str, str | None]:
     """Voice memo -> (English text, detected language name).
+
+    language is a Whisper code ("es", "vi") chosen by the client, or None to auto-detect.
 
     Runs locally with faster-whisper, so audio never leaves the machine. Non-English speech is
     translated to English, because the rules engine and lawyers read English; the detected
@@ -69,23 +81,26 @@ def transcribe(data: bytes, file_name: str = "audio.m4a") -> tuple[str, str | No
         model = _load_whisper()
     except Exception as exc:  # not installed, or model not downloaded and no network
         return f"[Automatic transcription unavailable ({type(exc).__name__}). Please type what the memo says.]", None
+    lang_arg = {"language": language} if language else {}   # only passed when the client chose one
     try:  # decoded in memory, so the audio is never written to disk
-        segments, info = model.transcribe(io.BytesIO(data), task="translate", vad_filter=True)
+        segments, info = model.transcribe(io.BytesIO(data), task="translate", vad_filter=True, **lang_arg)
         text = " ".join(seg.text.strip() for seg in segments).strip()
     except Exception as exc:
         return f"[Could not transcribe this audio ({type(exc).__name__}). Please type what it says.]", None
 
-    # Treat low-confidence language detection as unknown.
-    if getattr(info, "language_probability", 1.0) < 0.5:
+    # Treat low-confidence language detection as unknown (not needed when the client chose it).
+    if not language and getattr(info, "language_probability", 1.0) < 0.5:
         return text or "[No speech detected in this recording.]", None
 
-    language = LANGUAGE_NAMES.get(info.language, info.language)
+    code = language or info.language
+    language = LANGUAGE_NAMES.get(code, code)
 
     # For non-English audio, append the original-language transcript so the brief preserves
     # exactly what the client said (useful for lawyers who share that language).
     if language != "English":
         try:
-            orig_segments, _ = model.transcribe(io.BytesIO(data), task="transcribe", vad_filter=True)
+            orig_segments, _ = model.transcribe(io.BytesIO(data), task="transcribe", vad_filter=True,
+                                                language=code)
             orig_text = " ".join(seg.text.strip() for seg in orig_segments).strip()
             if orig_text:
                 label = f"Original ({language}):"
@@ -96,10 +111,10 @@ def transcribe(data: bytes, file_name: str = "audio.m4a") -> tuple[str, str | No
     return text or "[No speech detected in this recording.]", language
 
 
-def voice_evidence(data: bytes, file_name: str) -> Evidence:
+def voice_evidence(data: bytes, file_name: str, language: str | None = None) -> Evidence:
     """Build a voice Evidence item. The title records the original language, which the brief
-    uses to set the client's languages (see brief.build)."""
-    text, language = transcribe(data, file_name)
+    uses to set the client's languages (see brief.build). language: see transcribe()."""
+    text, language = transcribe(data, file_name, language)
     if language is None and text.startswith("["):
         title = f"Voice memo {file_name} (needs a typed transcript)"
     elif language is None:

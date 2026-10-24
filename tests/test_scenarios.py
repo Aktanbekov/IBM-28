@@ -93,3 +93,22 @@ def test_10_spanish_speaking_lawyer_is_first_for_spanish_speakers():
         b = brief.build(ingest.load_demo_case(case))
         results, _ = matching.match(b.case_type, b.client_side, b.county, b.languages)
         assert results[0]["id"] == first and "Spanish" in results[0]["languages"]
+
+
+def test_case_type_uses_whole_words():
+    # Found by IBM Bob's architecture review: "car" used to match "urgent care" and "scar",
+    # so a dog bite treated at urgent care was sorted as a car accident.
+    _, b, _ = run(("note", "note", "My dog bit me. I went to urgent care and they said to take care "
+                                   "of the scar."))
+    assert b.case_type == "dog_bite"
+    _, b, _ = run(("note", "note", "I slipped at the store near the card reader. Urgent care said "
+                                   "to take care of my knee."))
+    assert b.case_type == "premises"
+
+
+def test_demo_data_is_utf8():
+    # Accented names (Martínez) must load the same on Windows and Mac. Also a Bob finding.
+    from pathlib import Path
+    for path in Path(ingest.DATA_DIR).rglob("*"):
+        if path.is_file() and path.suffix in (".txt", ".json"):
+            path.read_text(encoding="utf-8")
