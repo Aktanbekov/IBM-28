@@ -8,8 +8,10 @@ import copy
 import html
 import os
 import re
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 
 import streamlit as st
@@ -114,7 +116,14 @@ CSS = """
 .cb-check-foot{font-size:.9rem;color:#4A5068;margin:.35rem 0 0;padding-top:.6rem;border-top:1px solid #E3E5EC}
 .cb-check-foot b{color:#1E2230}
 .st-key-checks h3.cb-h{margin-top:.1rem}
-.cb-list.cb-data li{grid-template-columns:11rem 1fr;gap:.85rem;align-items:start}
+[data-testid="stTabs"] [role="tab"] p{font-size:1rem;font-weight:700}
+[data-testid="stTabs"] [role="tablist"]{gap:1.75rem}
+.cb-trust{display:flex;flex-wrap:wrap;gap:.35rem 1.5rem;font-size:.95rem;color:#4A5068;margin:.6rem 0 .15rem}
+.cb-trust b{color:#1E2230;font-variant-numeric:tabular-nums}
+.cb-list.cb-data li{grid-template-columns:1fr;gap:.1rem}
+.cb-lawyer{font-size:.9rem;color:#4A5068;margin:0 0 .3rem}
+.cb-lawyer b{font-size:1.15rem;color:#1E2230;margin-right:.6rem}
+.cb-why.cb-why-row{display:flex;flex-wrap:wrap;gap:.1rem 1.25rem;margin:0 0 .25rem}
 .st-key-data h3.cb-h{margin-top:.1rem}
 .cb-redact{display:inline-block;padding:0 .4rem;border-radius:2px;background:#1E2230;color:#fff;font-size:.72rem;
   font-weight:700;letter-spacing:.03em;line-height:1.35rem;white-space:nowrap}
@@ -309,6 +318,41 @@ def show_facts(title: str, facts: list, dated: bool = False):
     st.html(f'<ul class="cb-list{" cb-dated" if dated else ""}">{"".join(rows)}</ul>')
 
 
+def lawyer_card(lw: dict):
+    """One matched lawyer. Practice area and side are true of every card, so they are said once above the
+    list; the card shows only what else fits this case (county, language, free consultation)."""
+    with st.container(border=True, key=f"lawyer_{lw['id']}"):
+        c1, c2 = st.columns([5, 1], vertical_alignment="center")
+        with c1:
+            extra = lw["why"][2:]
+            st.html(f'<p class="cb-lawyer"><b>{esc(lw["name"])}</b>{esc(lw["firm"])} · {lw["years"]} years · '
+                    f'{esc(lw["fee_model"])}</p>'
+                    + ('<ul class="cb-why cb-why-row">' + "".join(f"<li>{esc(w)}</li>" for w in extra) + "</ul>"
+                       if extra else "")
+                    + '<p class="cb-meta">'
+                    + ("" if any(w.startswith("Speaks") for w in extra)
+                       else f'Speaks {esc(", ".join(lw["languages"]))} · ')
+                    + f'Rated {lw["rating"]} from {lw["reviews"]} reviews (sample data): '
+                      f'<i>“{esc(lw["review_snippets"][0])}”</i></p>')
+        with c2:
+            if lw["id"] in ss.sent_to:
+                st.html('<span class="cb-chip">Brief sent</span>')
+            elif st.button("Send my brief", key=f"send_{lw['id']}", icon=":material/send:", width="stretch"):
+                ss.sent_to.append(lw["id"])
+                st.rerun()
+
+
+def once(facts: list, seen: set[str]) -> list:
+    """Facts not shown under an earlier heading. Keeps the first place a sentence appears."""
+    out = []
+    for f in facts:
+        k = " ".join(f.text.lower().split())
+        if k not in seen:
+            seen.add(k)
+            out.append(f)
+    return out
+
+
 CHECK_WARNINGS = ("Removed", "Blocked", "Flagged", "Fact check", "The fact check")
 CHECK_ORDER = ["sources", "numbers", "guardian", "advice"]
 
@@ -457,18 +501,33 @@ def _brief_cache() -> dict:
     return {}
 
 
+@st.cache_resource
+def _builder() -> tuple[ThreadPoolExecutor, dict, threading.Lock]:
+    """One build at a time for the whole app: two Granite runs at once don't fit in a laptop's memory."""
+    return ThreadPoolExecutor(max_workers=1), {}, threading.Lock()
+
+
 def build_brief(evidence: list) -> "CaseBrief":
     """Same evidence and same engine -> the same brief, instantly. Granite on a laptop takes about a
-    minute, so a demo can build once beforehand. A brief whose model or fact check failed is not kept,
-    so the next build tries again. Each caller gets its own copy."""
+    minute, so a demo can build once beforehand. The build runs outside the page's script, so a click
+    elsewhere doesn't throw it away, and a second click waits for the build already running instead of
+    starting another. A brief whose model or fact check failed is not kept, so the next build tries
+    again. Each caller gets its own copy."""
     key = (tuple((e.id, e.kind, e.title, e.text, e.file_name) for e in evidence), llm.backend(), llm.checker())
     cache = _brief_cache()
-    if key not in cache:
-        b = brief_agent.build(evidence)
-        if any(w.startswith(("LLM unavailable", "The fact check")) for w in b.warnings):
-            return b
+    if key in cache:
+        return copy.deepcopy(cache[key])
+    pool, running, lock = _builder()
+    with lock:
+        job = running.get(key)
+        if job is None:
+            job = running[key] = pool.submit(brief_agent.build, copy.deepcopy(evidence))
+    b = job.result()
+    with lock:
+        running.pop(key, None)
+    if not any(w.startswith(("LLM unavailable", "The fact check")) for w in b.warnings):
         cache[key] = b
-    return copy.deepcopy(cache[key])
+    return copy.deepcopy(b)
 
 
 # --- the lawyer board: shared database when available, this session's memory otherwise --------
@@ -723,6 +782,10 @@ if page.startswith("1"):
                 voices = sum(e.kind == "voice" for e in ss.evidence)
                 st.write(f"Reading {len(ss.evidence)} pieces of evidence"
                          + (f", including {voices} voice memo{'s' if voices != 1 else ''}" if voices else ""))
+                where = {"ollama": "on this computer", "watsonx": "on IBM watsonx"}.get(llm.backend())
+                if where:
+                    st.write(f"IBM Granite is writing your brief {where}. This usually takes about a minute "
+                             "the first time. Please keep this page open.")
                 ss.brief = build_brief(ss.evidence)
                 ss.hidden = set()
                 for k in [k for k in ss if str(k).startswith("hide_")]:
@@ -758,24 +821,19 @@ elif page.startswith("2"):
         st.stop()
     ev_by_id = {e.id: e for e in ss.evidence}
 
+    # 1. The case in one paragraph, and the one thing to do: confirm what the AI inferred.
     lead(b.summary)
     if b.summary_guardian_flags:
         st.html(guardian_tags(b.summary_guardian_flags))
-    status, _ = engine_status(b.engine)
-    meta(f"{status} Every statement shows the evidence it came from. Statements without a source are removed "
-         "automatically.")
-
     # What CaseBridge did with this case. It counts our own work, never the case's strength or value.
     stats = scoreboard.brief_stats(ss.evidence, b, safety.redact_brief(b, evidence_names()))
-    with st.container(key="score"):
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Facts with a source", f"{stats['facts_cited']}/{stats['facts']}", border=True)
-        m2.metric("Advice found in brief", stats["advice_given"], border=True)
-        m3.metric("Details hidden from lawyers", stats["details_hidden"], border=True)
-        m4.metric("Hidden instructions caught", stats["hidden_instructions"], border=True)
-        st.progress(stats["readiness_pct"] / 100,
-                    text=f"Evidence checklist: {stats['evidence_covered']} of {stats['evidence_checklist']} items a "
-                         "lawyer usually asks for (how complete your evidence is, not how strong your case is)")
+    status, _ = engine_status(b.engine)
+    st.html('<div class="cb-trust">'
+            f'<span><b>{stats["facts_cited"]} of {stats["facts"]}</b> statements cite your evidence</span>'
+            f'<span><b>{stats["advice_given"]}</b> read as legal advice</span>'
+            f'<span><b>{stats["details_hidden"]}</b> personal details hidden from lawyers</span>'
+            f'<span><b>{stats["hidden_instructions"]}</b> hidden instructions</span></div>'
+            f'<p class="cb-meta">{esc(status)} The tab <b>How it was checked</b> shows each check.</p>')
     only = [l for l in b.languages if l != "English"]
     if only and "English" not in b.languages:
         state_note(f"<b>You speak {esc(', '.join(only))}.</b> We'll only show lawyers who speak it too.")
@@ -793,99 +851,117 @@ elif page.startswith("2"):
         c4.button("Find lawyers", type="primary", icon=":material/arrow_forward:", on_click=go,
                   args=(PAGES[2],), width="stretch")
 
-    # Check results are shown in the report below, so only evidence findings and engine notes stay notices.
+    # 2. What needs attention now. Check results live in their own tab, so only evidence findings stay here.
     for w in b.warnings:
         if not w.startswith(CHECK_WARNINGS):
             notice(w, b.deadlines)
-
-    # Insurer tactics, one calm card per document: what each one means, and a question for a lawyer. Never advice.
+    # Insurer tactics, one line per document until opened: what each means, and a question for a lawyer.
     by_source: dict[str, list[dict]] = {}
     for a in b.alerts:
         by_source.setdefault(a["sources"][0], []).append(a)
     for src, alerts in by_source.items():
         name = ev_by_id[src].title if src in ev_by_id else src
-        with st.container(border=True):
-            st.html(f'<p class="cb-label">{tag(src)} {esc(name)}: {len(alerts)} thing'
-                    f'{"s" if len(alerts) != 1 else ""} to know</p>')
-            for a in alerts:
-                with st.expander(a["title"], icon=":material/info:"):
-                    st.html(f'<p class="cb-meta">{esc(a["meaning"])}<br><i>A question to ask a lawyer:</i> '
-                            f'{esc(a["ask"])}</p>')
-    # Details that disagree between documents, with the evidence on each side.
+        n = len(alerts)
+        with st.expander(f"{src} · {name}: {n} thing{'s' if n != 1 else ''} to know", icon=":material/info:"):
+            st.html('<ul class="cb-list">' + "".join(
+                f'<li><span><b>{esc(a["title"])}</b><span class="cb-caught">{esc(a["meaning"])}<br>'
+                f'<i>A question to ask a lawyer:</i> {esc(a["ask"])}</span></span></li>' for a in alerts) + "</ul>")
     for c in b.contradictions:
         st.html(f'<div class="cb-notice cb-note"><b>Details that don\'t match: {esc(c["topic"])}</b>'
                 f'{rich(c["text"])} A lawyer will want to clear this up early. It is common and doesn\'t mean '
                 'anyone did something wrong.</div>')
 
-    show_checks(b, ev_by_id)
+    # 3. Everything else, one question at a time.
+    due_soon = sum(0 <= days_until(d["date"]) <= 30 for d in b.deadlines)
+    t_facts, t_next, t_checks, t_privacy = st.tabs(
+        ["What happened", "Deadlines and next steps", "How it was checked", "Privacy"], key="brief_tab")
 
-    left, right = st.columns([3, 2], gap="large")
-    with left:
-        show_facts("Timeline", b.timeline, dated=True)
-        show_facts("People and organizations involved", b.parties)
-        show_facts("Injuries and treatment", b.injuries)
-        show_facts("Costs and losses reported", b.damages)
-    with right:
-        heading("Check a source")
-        sid = st.selectbox("Evidence", list(ev_by_id), format_func=lambda i: f"{i} · {ev_by_id[i].title}",
-                           label_visibility="collapsed")
+    with t_facts:
+        left, right = st.columns([3, 2], gap="large")
         all_facts = b.timeline + b.parties + b.injuries + b.damages
-        with st.container(border=True):
-            src = ev_by_id[sid]
-            english, _, original = src.text.partition("\nOriginal (")
-            if sid in flagged_ids():
-                st.html(f'<div class="cb-source-head">{tag(sid)}</div>{blocked_stamp(src.text)}')
-            elif original:      # voice memo: the client's own words next to the English version
-                lang, _, words = original.partition("): ")
-                t_en, t_own = st.tabs(["English", f"Your words ({lang})"])
-                with t_en:
-                    shown = Evidence(src.id, src.kind, src.title, english)
-                    st.html(f'<div class="cb-source-head">{tag(sid)}<span>Cited sentences are highlighted</span>'
-                            f'</div><p class="cb-source">{marked_source(shown, all_facts)}</p>')
-                with t_own:
-                    st.html(f'<p class="cb-source">{esc(words)}</p>')
-            else:
-                st.html(f'<div class="cb-source-head">{tag(sid)}<span>Cited sentences are highlighted</span></div>'
-                        f'<p class="cb-source">{marked_source(src, all_facts)}</p>')
-        heading("Deadlines to confirm with a lawyer")
-        show_deadlines(b.deadlines, stacked=True)
-        meta("General California rules. Exceptions apply. A lawyer must confirm every date.")
-        heading("What a lawyer will likely ask for")
-        if b.missing_evidence:
-            st.html('<ul class="cb-list cb-checklist">'
-                    + "".join(f"<li><span>{esc(m)}" + (f'<br><small>How to get it: {esc(rules.how_to_get(m))}</small>'
-                                                       if rules.how_to_get(m) else "") + "</span></li>"
-                              for m in b.missing_evidence) + "</ul>")
-        else:
-            st.html('<p class="cb-empty">No common items are missing.</p>')
-
-    with st.expander("Preview what a lawyer sees before you accept them", icon=":material/visibility_off:"):
-        meta("Names, phone numbers, emails, plates and report numbers stay hidden until you accept a lawyer.")
-        if st.toggle("Watch your details disappear", key="reveal"):
-            names, delay, rows = evidence_names(), 0.0, []
-            for f in b.timeline + b.parties + b.injuries + b.damages:
-                if scoreboard.redaction_swaps(f.text, names):
-                    row, delay = reveal(f.text, names, delay)
-                    rows.append(f'<p class="cb-reveal">{row}</p>')
-            st.html("".join(rows) or '<p class="cb-empty">Nothing personal to hide in these statements.</p>')
-        red = safety.redact_brief(b, evidence_names())
-        receipt = st.container()       # filled after the checkboxes, so it reflects this click
-        lead(red["summary"])
-        meta("Tick any line you'd rather not show to lawyers yet. You can share it later.")
-        for section, title in (("timeline", "Timeline"), ("parties", "People involved"),
-                               ("injuries", "Injuries"), ("damages", "Costs and losses")):
-            heading(title)
-            for i, f in enumerate(red[section]):
-                key = safety.fact_key(section, i)
-                if st.checkbox(f"{f['text']} [{', '.join(f['sources'])}]", value=key in ss.hidden,
-                               key=f"hide_{key}", help="Hide this line from lawyers"):
-                    ss.hidden.add(key)
+        seen: set[str] = set()      # the rules engine can file one sentence under two headings; show it once
+        with left:
+            show_facts("Timeline", once(b.timeline, seen), dated=True)
+            show_facts("People and organizations involved", once(b.parties, seen))
+            show_facts("Injuries and treatment", once(b.injuries, seen))
+            show_facts("Costs and losses reported", once(b.damages, seen))
+        with right:
+            heading("Check a source")
+            sid = st.selectbox("Evidence", list(ev_by_id), format_func=lambda i: f"{i} · {ev_by_id[i].title}",
+                               label_visibility="collapsed")
+            with st.container(border=True):
+                src = ev_by_id[sid]
+                english, _, original = src.text.partition("\nOriginal (")
+                if sid in flagged_ids():
+                    st.html(f'<div class="cb-source-head">{tag(sid)}</div>{blocked_stamp(src.text)}')
+                elif original:      # voice memo: the client's own words next to the English version
+                    lang, _, words = original.partition("): ")
+                    t_en, t_own = st.tabs(["English", f"Your words ({lang})"])
+                    with t_en:
+                        shown = Evidence(src.id, src.kind, src.title, english)
+                        st.html(f'<div class="cb-source-head">{tag(sid)}<span>Cited sentences are highlighted'
+                                f'</span></div><p class="cb-source">{marked_source(shown, all_facts)}</p>')
+                    with t_own:
+                        st.html(f'<p class="cb-source">{esc(words)}</p>')
                 else:
-                    ss.hidden.discard(key)
-        with receipt:
-            privacy_receipt(safety.hide_facts(dict(red), ss.hidden))
+                    st.html(f'<div class="cb-source-head">{tag(sid)}<span>Cited sentences are highlighted</span>'
+                            f'</div><p class="cb-source">{marked_source(src, all_facts)}</p>')
 
-    show_data_panel()
+    with t_next:
+        left, right = st.columns([1, 1], gap="large")
+        with left:
+            heading("Deadlines to confirm with a lawyer")
+            if due_soon:
+                meta(f"{due_soon} of these {'is' if due_soon == 1 else 'are'} within the next 30 days.")
+            show_deadlines(b.deadlines, stacked=True)
+            meta("General California rules. Exceptions apply. A lawyer must confirm every date.")
+        with right:
+            heading("What a lawyer will likely ask for")
+            meta(f"You have {stats['evidence_covered']} of the {stats['evidence_checklist']} items a lawyer usually "
+                 "asks for. This is about how complete your evidence is, not how strong your case is.")
+            if b.missing_evidence:
+                st.html('<ul class="cb-list cb-checklist">'
+                        + "".join(f"<li><span>{esc(m)}" + (f'<br><small>How to get it: {esc(rules.how_to_get(m))}'
+                                                           '</small>' if rules.how_to_get(m) else "") + "</span></li>"
+                                  for m in b.missing_evidence) + "</ul>")
+            else:
+                st.html('<p class="cb-empty">No common items are missing.</p>')
+
+    with t_checks:
+        show_checks(b, ev_by_id)
+
+    with t_privacy:
+        left, right = st.columns([3, 2], gap="large")
+        with left:
+            heading("What a lawyer sees before you accept them")
+            meta("Names, phone numbers, emails, plates and report numbers stay hidden until you accept a lawyer.")
+            if st.toggle("Watch your details disappear", key="reveal"):
+                names, delay, rows = evidence_names(), 0.0, []
+                for f in b.timeline + b.parties + b.injuries + b.damages:
+                    if scoreboard.redaction_swaps(f.text, names):
+                        row, delay = reveal(f.text, names, delay)
+                        rows.append(f'<p class="cb-reveal">{row}</p>')
+                st.html("".join(rows) or '<p class="cb-empty">Nothing personal to hide in these statements.</p>')
+            red = safety.redact_brief(b, evidence_names())
+            receipt = st.container()       # filled after the checkboxes, so it reflects this click
+            label("Their version of your summary")
+            lead(red["summary"])
+            with st.expander("Hide individual lines from lawyers", icon=":material/visibility_off:"):
+                meta("Tick any line you'd rather not show to lawyers yet. You can share it later.")
+                for section, title in (("timeline", "Timeline"), ("parties", "People involved"),
+                                       ("injuries", "Injuries"), ("damages", "Costs and losses")):
+                    heading(title)
+                    for i, f in enumerate(red[section]):
+                        key = safety.fact_key(section, i)
+                        if st.checkbox(f"{f['text']} [{', '.join(f['sources'])}]", value=key in ss.hidden,
+                                       key=f"hide_{key}", help="Hide this line from lawyers"):
+                            ss.hidden.add(key)
+                        else:
+                            ss.hidden.discard(key)
+            with receipt:
+                privacy_receipt(safety.hide_facts(dict(red), ss.hidden))
+        with right:
+            show_data_panel()
 
 
 # --- 3. Matches ------------------------------------------------------------------------
@@ -899,9 +975,11 @@ elif page.startswith("3"):
         st.stop()
 
     results, excluded = matching.match(b.case_type, b.client_side, b.county or None, b.languages)
-    lead(f"Showing {len(results)} lawyer{'' if len(results) == 1 else 's'} who handle{'s' if len(results) == 1 else ''} {PRACTICE_AREAS[b.case_type].lower()} cases for "
-         f"{SIDE_PLAIN[b.client_side]}.")
-    meta(f"Hidden: {excluded['practice_area']} with a different practice area, {excluded['side']} who only "
+    n = len(results)
+    lead(f"{n} lawyer{'' if n == 1 else 's'} handle{'s' if n == 1 else ''} {PRACTICE_AREAS[b.case_type].lower()} "
+         f"cases for {SIDE_PLAIN[b.client_side]}. Send your brief to the one you choose, or post it anonymously "
+         "and let them ask.")
+    meta(f"Not shown: {excluded['practice_area']} with a different practice area, {excluded['side']} who only "
          "represent the other side"
          + (f", {excluded['language']} who don't speak your language" if excluded["language"] else "")
          + ". Lawyer profiles, ratings and reviews are sample data.")
@@ -941,25 +1019,12 @@ elif page.startswith("3"):
                 state_note(f"You accepted <b>{esc(lw['name'])}</b> ({esc(lw['firm'])}). They can now see your name "
                            "and full brief.")
 
-    for lw in results:
-        with st.container(border=True, key=f"lawyer_{lw['id']}"):
-            c1, c2 = st.columns([4, 1])
-            with c1:
-                st.subheader(lw["name"], anchor=False)
-                st.html(f'<p class="cb-meta">{esc(lw["firm"])} · {lw["years"]} years in practice · '
-                        f'{esc(lw["fee_model"])} · Speaks {esc(", ".join(lw["languages"]))}</p>')
-                label("Why this match")
-                st.html('<ul class="cb-why">' + "".join(f"<li>{esc(w)}</li>" for w in lw["why"]) + "</ul>")
-                st.html(f'<p class="cb-meta">Rated {lw["rating"]} from {lw["reviews"]} reviews (sample data): '
-                        f'<i>“{esc(lw["review_snippets"][0])}”</i></p>')
-            with c2:
-                if lw["id"] in ss.sent_to:
-                    st.html('<span class="cb-chip">Brief sent</span>')
-                elif st.button("Send my brief", key=f"send_{lw['id']}", icon=":material/send:", width="stretch"):
-                    ss.sent_to.append(lw["id"])
-                    st.rerun()
-
-    show_data_panel()
+    for lw in results[:5]:
+        lawyer_card(lw)
+    if n > 5:
+        with st.expander(f"Show {n - 5} more lawyer{'' if n - 5 == 1 else 's'}", icon=":material/expand_more:"):
+            for lw in results[5:]:
+                lawyer_card(lw)
 
 
 # --- Lawyer portal ---------------------------------------------------------------------
@@ -968,24 +1033,25 @@ else:
     st.title("Lawyer portal", anchor=False)
     lawyers = matching.load_lawyers()
     by_id = {l["id"]: l for l in lawyers}
-    me = by_id[st.selectbox("Signed in as (demo)", list(by_id),
+    c1, c2 = st.columns([2, 3], vertical_alignment="bottom", gap="large")
+    me = by_id[c1.selectbox("Signed in as (demo lawyer)", list(by_id),
                             format_func=lambda i: f"{by_id[i]['name']} · {by_id[i]['firm']}")]
-    st.html(f'<div class="cb-strip"><span>You handle <b>{esc(", ".join(PRACTICE_AREAS[p] for p in me["practice_areas"]))}'
-            f'</b></span><span>Side <b>{esc(", ".join(me["sides"]))}</b></span>'
-            f'<span>Counties <b>{esc(", ".join(me["counties"]))}</b></span>'
-            f'<span><b>Sorted by date posted, never by estimated value</b></span></div>')
+    c2.html(f'<div class="cb-strip"><span>Handles <b>{esc(", ".join(PRACTICE_AREAS[p] for p in me["practice_areas"]))}'
+            f'</b></span><span>Represents <b>{esc(", ".join(me["sides"]))}</b></span>'
+            f'<span>Counties <b>{esc(", ".join(me["counties"]))}</b></span></div>')
 
-    tab_board, tab_inbox = st.tabs([":material/view_list: Case board", ":material/inbox: Briefs sent to me"])
+    mine_all = [c for c in board() if c["case_type"] in me["practice_areas"] and c["client_side"] in me["sides"]]
+    inbox = 1 if me["id"] in ss.sent_to and ss.brief else 0
+    tab_board, tab_inbox = st.tabs([f":material/view_list: Case board ({len(mine_all)})",
+                                    f":material/inbox: Briefs sent to me ({inbox})"])
     with tab_board:
-        meta("Only cases in your practice areas and sides are shown, newest first, so no one gets skipped for "
-             "being a 'small' case. Cases stay anonymized until the client accepts you.")
+        meta("Cases in your practice areas and side, newest first. Never sorted by value, so no case is skipped for "
+             "being small. Each stays anonymized until the client accepts you.")
         county_only = st.toggle("Only my counties", value=True)
-        visible = [c for c in board() if c["case_type"] in me["practice_areas"]
-                   and c["client_side"] in me["sides"]
-                   and (not county_only or c.get("county") in me["counties"])]
+        visible = [c for c in mine_all if not county_only or c.get("county") in me["counties"]]
         if not visible:
-            st.html('<p class="cb-empty">No matching cases right now. Turn off "Only my counties" to see cases '
-                    'from nearby counties.</p>')
+            st.html('<p class="cb-empty">No matching cases in your counties right now. Turn off "Only my counties" '
+                    f'to see all {len(mine_all)}.</p>')
         for c in visible:
             with st.container(border=True, key=f"case_{c['id']}"):
                 connected = me["id"] in c["connected"]
