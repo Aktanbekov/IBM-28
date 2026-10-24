@@ -7,9 +7,9 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-23 23:00 (commit `4642279`) |
-| Tests | passing (581 passed) |
-| Commits | 87 |
+| Last updated | 2026-10-23 23:27 (commit `1f1ef3d`) |
+| Tests | passing (585 passed) |
+| Commits | 91 |
 | Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Shahzod Bakhriev |
 <!-- AUTO:STATUS:END -->
 
@@ -143,6 +143,7 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 
 | Date | Author | Change |
 |---|---|---|
+| 2026-10-23 | Aktanbekov | ingest: read form-style PDFs one field per sentence, explain scanned PDFs |
 | 2026-10-24 | Claude | ui: cap uploads at 25 MB and show file names as typed, not as Markdown |
 | 2026-10-24 | Claude | safety: hide names with no cue using common first-name and surname lists |
 | 2026-10-24 | Claude | safety: close advice, redaction and file-name injection gaps from security sweep |
@@ -154,6 +155,4 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 | 2026-10-24 | Claude | docs: log Bob's stress-test session |
 | 2026-10-24 | Claude | safety: stop the email pattern freezing on long hyphenated text |
 | 2026-10-24 | Claude | engine: scoreboard numbers and redaction swaps for the demo UI |
-| 2026-10-24 | Claude | engine: fixes from the code review |
-| 2026-10-24 | Claude | data: add a trick insurer letter for the hidden-instruction demo |
 <!-- AUTO:CHANGELOG:END -->
