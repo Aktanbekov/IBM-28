@@ -7,9 +7,9 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-23 23:49 (commit `0e67e26`) |
+| Last updated | 2026-10-24 01:14 (commit `9335ce4`) |
 | Tests | passing (595 passed) |
-| Commits | 100 |
+| Commits | 103 |
 | Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Nurislam, Shahzod Bakhriev |
 <!-- AUTO:STATUS:END -->
 
@@ -159,6 +159,7 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 
 | Date | Author | Change |
 |---|---|---|
+| 2026-10-24 | Aktanbekov | ui: calmer brief, lawyer list and portal; one Granite build at a time |
 | 2026-10-23 | Aktanbekov | Shared lawyer database, delete my case, data panel, Granite tuned on a real run |
 | 2026-10-23 | Aktanbekov | ingest: read form-style PDFs one field per sentence, explain scanned PDFs |
 | 2026-10-24 | Claude | ui: cap uploads at 25 MB and show file names as typed, not as Markdown |
@@ -168,5 +169,4 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 | 2026-10-24 | Claude | ingest: return a placeholder for damaged or huge PDFs instead of crashing |
 | 2026-10-23 | Nurislam | ci: restrict pytest to tests/ dir; add anthropic to requirements |
 | 2026-10-23 | Nurislam | Added to the features to the actual demo |
-| 2026-10-23 | Aktanbekov | ai: live Granite Guardian fact check, current watsonx models, check report UI |
 <!-- AUTO:CHANGELOG:END -->
