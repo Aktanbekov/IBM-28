@@ -161,3 +161,24 @@ def test_exact_quotes_skip_the_model_check():
 def test_month_names_support_numeric_dates():
     assert safety.unsupported_numbers("The crash was on 10/2/2026.", ["Collision on October 2, 2026."]) == []
     assert safety.unsupported_numbers("The crash was on 11/2/2026.", ["Collision on October 2, 2026."]) == ["11"]
+
+
+def test_watsonx_rate_limit_is_retried(monkeypatch):
+    import urllib.error
+    monkeypatch.setenv("WATSONX_PROJECT_ID", "p")
+    monkeypatch.setattr(llm.time, "sleep", lambda s: None)
+    calls = []
+    def flaky(url, payload, headers=None, form=False, timeout=120):
+        calls.append(url)
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, None)
+        return {"choices": [{"message": {"content": "OK"}}]}
+    monkeypatch.setattr(llm, "_post", flaky)
+    assert llm._watsonx_post("/ml/v1/text/chat", {"model_id": "m"}, token="t")["choices"]
+    assert len(calls) == 2
+
+
+def test_spelled_out_numbers_in_evidence_support_digits():
+    evidence = ["I am seventy-three years old and missed six days of work."]
+    assert safety.unsupported_numbers("Bao, age 73, missed 6 days.", evidence) == []
+    assert safety.unsupported_numbers("Bao, age 74.", evidence) == ["74"]
