@@ -42,7 +42,7 @@ actually handles their kind of case, while keeping the AI honest, private and fr
 ## Responsible AI by design
 | Risk | What we built |
 |---|---|
-| AI invents facts | Every fact must cite evidence. Uncited ones are removed, and the brief says how many. |
+| AI invents facts | Every fact must cite evidence; uncited ones are removed. Numbers must appear in the cited evidence. Granite Guardian checks each fact against its sources. |
 | A bot giving legal advice | A guardrail blocks outcome predictions, "you should sign or settle", and case valuations |
 | Sensitive data exposure | Names, phones, emails, date of birth, plates and report numbers are redacted until the client accepts a lawyer |
 | Lawyers skip "small" cases | No case-value score exists. The lawyer board is sorted by date only. |
@@ -75,13 +75,30 @@ The app works fully offline with a rule-based engine. To use IBM Granite:
 
 | Option | Setup |
 |---|---|
-| IBM watsonx.ai | `export WATSONX_APIKEY=... WATSONX_PROJECT_ID=...` (optional: `WATSONX_URL`, `WATSONX_MODEL`) |
-| Local Granite via Ollama | `ollama pull granite3.3 && ollama serve` |
+| IBM watsonx.ai | Copy `.env.example` to `.env` and fill in `WATSONX_APIKEY` and `WATSONX_PROJECT_ID`. The app picks the newest Granite chat model your region offers (today `ibm/granite-4-h-small`); `WATSONX_MODEL` overrides it. |
+| Granite Guardian (fact check) | `brew install ollama && ollama serve`, then `ollama pull granite3-guardian:2b`. Runs on your laptop. |
+| Local Granite via Ollama | `ollama pull granite3.3` |
 | Force a backend | `LLM_BACKEND=watsonx`, `ollama` or `rules` |
 
+Check your setup in one command: `python -m casebridge.llm`. It shows the backend and model, makes
+one real chat call, and runs the fact check on a supported and a made-up statement.
+
 The rule-based engine always computes the case type, side, county, deadlines and missing evidence.
-When Granite is connected, it writes the narrative sections, which still go through the citation
-and advice guardrails.
+When Granite is connected, it writes the narrative sections. Then every statement is checked:
+
+1. **Citations:** a statement with no evidence id is removed (all modes).
+2. **Numbers:** every number in a statement must appear in the evidence it cites (all modes).
+3. **Fact check by a second model:** Granite Guardian checks each reworded statement against its cited
+   evidence (groundedness). Legal advice stays with the rules guardrail: in testing, Guardian 2B flagged quoted
+   insurer letters as advice. IBM withdrew Guardian from watsonx on
+   2026-09-30, so it runs locally through Ollama; without it, Granite on watsonx answers the same
+   Yes/No check. The brief always names which checker ran.
+4. **Legal-advice guardrail:** outcome predictions, "you should sign", and valuations are blocked (all modes).
+
+On the brief page, **How this brief was checked** lists each check and its result, and **Try to fool it**
+runs three made-up statements (an invented speed, legal advice, an uncited claim) through the same checks live.
+A statement copied word for word from its cited evidence is grounded by definition, so the model checks the
+statements Granite rewrote.
 
 ## Project structure
 ```

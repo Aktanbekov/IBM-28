@@ -73,34 +73,24 @@ class TestGroundednessFailure:
              mock.patch("casebridge.brief._fetch_token", return_value="tok"):
             brief_mod._apply_guardian(b, ev)
 
-        assert any("Guardian flagged" in w for w in b.warnings)
+        assert any("flagged 1 statement" in w for w in b.warnings), b.warnings
 
 
 # ---------------------------------------------------------------------------
-# Test 2 — legal-advice failure flags every Granite fact
+# Test 2 — legal advice is never sent to Guardian (the rules guardrail owns it)
 # ---------------------------------------------------------------------------
 
-class TestAdviceFailure:
-    """When the whole-brief advice call returns True, every fact gets the advice flag."""
+class TestAdviceStaysWithRules:
+    """Guardian 2B flagged quoted insurer letters as advice, so only groundedness is asked."""
 
-    def test_all_facts_get_advice_flag(self):
-        f1 = Fact(text="Maria should accept the offer.", sources=["E1"])
-        f2 = Fact(text="The collision happened on October 2.", sources=["E2"])
-        b = _make_brief(f1, f2)
-        ev = _make_evidence("The insurer offered $5,000.", "Collision on October 2.")
-
-        # Advice call is the one with no evidence text and contains both fact texts.
-        # Route: True only for the advice call (empty evidence_text and multi-sentence input).
-        def _routed(user_text, risk, ev_text, token):
-            from casebridge.brief import ADVICE_RISK
-            return risk == ADVICE_RISK  # True only for the single advice call
-
-        with mock.patch("casebridge.llm.guardian_check", side_effect=_routed), \
+    def test_only_groundedness_is_checked(self):
+        b = _make_brief(Fact(text="The insurer offered $1,200.", sources=["E1"]))
+        ev = _make_evidence("We are prepared to offer $1,200 as full settlement.")
+        with mock.patch("casebridge.llm.guardian_check", return_value=False) as check, \
              mock.patch("casebridge.brief._fetch_token", return_value="tok"):
             brief_mod._apply_guardian(b, ev)
-
-        for fact in (f1, f2):
-            assert any("Legal-advice risk" in fl for fl in fact.guardian_flags), fact.guardian_flags
+        assert {c.args[1] for c in check.call_args_list} == {brief_mod.GROUNDEDNESS_RISK}
+        assert all(c.args[2] for c in check.call_args_list)   # always against evidence
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +112,7 @@ class TestAllChecksSafe:
 
         assert fact.guardian_flags == []
         assert b.summary_guardian_flags == []
-        assert not any("Guardian flagged" in w for w in b.warnings)
+        assert not any("flagged" in w for w in b.warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -130,8 +120,8 @@ class TestAllChecksSafe:
 # ---------------------------------------------------------------------------
 
 class TestGuardianUnavailable:
-    """When guardian_check returns None (network error etc.), facts are marked
-    'Not checked' and no fact is deleted."""
+    """When guardian_check returns None for every call (network error etc.), the brief says so
+    once, calmly, and no fact is flagged or deleted."""
 
     def test_fact_marked_not_checked(self):
         fact = Fact(text="Vehicle was a red sedan.", sources=["E1"])
@@ -142,7 +132,8 @@ class TestGuardianUnavailable:
              mock.patch("casebridge.brief._fetch_token", return_value="tok"):
             brief_mod._apply_guardian(b, ev)
 
-        assert any("Not checked" in fl for fl in fact.guardian_flags), fact.guardian_flags
+        assert fact.guardian_flags == []
+        assert any("could not run" in w for w in b.warnings), b.warnings
         # Fact must NOT have been deleted
         assert b.timeline[0] is fact
 
