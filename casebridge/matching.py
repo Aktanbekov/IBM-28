@@ -24,8 +24,9 @@ def match(case_type: str, side: str, county: str | None, languages: list[str],
           lawyers: list[dict] | None = None) -> tuple[list[dict], dict]:
     lawyers = lawyers if lawyers is not None else load_lawyers()
     results, excluded = [], {"practice_area": 0, "side": 0, "language": 0}
+    unclear = case_type == "other"      # e.g. only an insurer letter: don't leave the client with nobody
     for lw in lawyers:
-        if case_type not in lw["practice_areas"]:
+        if not unclear and case_type not in lw["practice_areas"]:
             excluded["practice_area"] += 1
             continue
         if side not in lw["sides"]:
@@ -34,8 +35,9 @@ def match(case_type: str, side: str, county: str | None, languages: list[str],
         if not speaks_with(languages, lw["languages"]):
             excluded["language"] += 1
             continue
-        score, why = 5.0, [f"Handles {case_type.replace('_', ' ')} cases",
-                           f"Represents the {side} side"]
+        area = ("Handles injury cases (confirm your case type to narrow this list)" if unclear
+                else f"Handles {case_type.replace('_', ' ')} cases")
+        score, why = 5.0, [area, f"Represents the {side} side"]
         if county and county in lw["counties"]:
             score += 3
             why.append(f"Practices in {county} County")
