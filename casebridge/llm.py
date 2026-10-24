@@ -55,6 +55,20 @@ def _post(url: str, payload: dict, headers: dict | None = None, form: bool = Fal
         return json.loads(resp.read())
 
 
+def _watsonx_post(path: str, payload: dict, timeout=120, token: str = "") -> dict:
+    """A watsonx call that retries rate limits and brief server errors. The free Lite plan rejects bursts
+    (for example the fact check's parallel calls right after a brief), so a short wait usually succeeds."""
+    url = f"{WATSONX_URL}{path}?version={WATSONX_VERSION}"
+    payload = {"project_id": os.environ["WATSONX_PROJECT_ID"], **payload}
+    for wait in (1, 2, 4, None):
+        try:
+            return _post(url, payload, headers={"Authorization": f"Bearer {token or watsonx_token()}"}, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            if wait is None or exc.code not in (429, 500, 502, 503, 504):
+                raise
+            time.sleep(wait)
+
+
 def _get(url: str, timeout=10) -> dict:
     with urllib.request.urlopen(url, timeout=timeout) as resp:
         return json.loads(resp.read())
@@ -137,10 +151,8 @@ def chat(system: str, user: str, max_tokens: int = 2000, as_json: bool = True) -
     b = backend()
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     if b == "watsonx":
-        out = _post(f"{WATSONX_URL}/ml/v1/text/chat?version={WATSONX_VERSION}",
-                    {"model_id": watsonx_model(), "project_id": os.environ["WATSONX_PROJECT_ID"],
-                     "messages": messages, "max_tokens": max_tokens, "temperature": 0},
-                    headers={"Authorization": f"Bearer {watsonx_token()}"})
+        out = _watsonx_post("/ml/v1/text/chat", {"model_id": watsonx_model(), "messages": messages,
+                                                 "max_tokens": max_tokens, "temperature": 0})
         return out["choices"][0]["message"]["content"]
     if b == "ollama":
         payload = {"model": OLLAMA_MODEL, "messages": messages, "stream": False,
@@ -171,6 +183,18 @@ GROUNDEDNESS_DEFINITION = (
     "supported by or directly related to the provided context. An ungrounded answer may involve "
     "fabricating information, misinterpreting the context, or making unsupported extrapolations "
     "beyond what the context actually states.")
+
+
+# Granite on watsonx, when no Guardian is available. Saying what "supported" means matters: asked only
+# "does it contain any unsupported detail?", Granite 4 flagged 6 of 6 true paraphrases on Maria's case;
+# with this wording it flagged 1 of 6 and still caught all 5 invented facts.
+WATSONX_GROUNDEDNESS_SYSTEM = (
+    "You check a case brief against its evidence. A statement is SUPPORTED when everything it says can be found "
+    "in, or directly follows from, the evidence, even if it is reworded, shortened or summarized. It is "
+    "UNSUPPORTED when it adds a fact, number, name, date or detail that the evidence does not contain, or "
+    "contradicts the evidence. Calling the writer \"the client\" is not a new fact. An injury, damage or "
+    "treatment that the evidence does not mention IS a new fact, even when the statement says the client "
+    "reports it. Answer with exactly one word: Yes if UNSUPPORTED, No if SUPPORTED.")
 
 
 def _guardian_prompt(text: str, risk_definition: str, context: str) -> str:
@@ -228,32 +252,18 @@ def guardian_check(user_text: str, risk_definition: str, evidence_text: str,
                          "options": {"temperature": 0, "num_predict": 5}}, timeout=60)
             return _yes_no(out.get("response", ""))
         if backend() == "watsonx":
-            question = (f"Evidence:\n{evidence_text}\n\nStatement: {user_text}\n\n"
-                        "Does the statement add a specific fact that the evidence does not mention, such as "
-                        "an event, injury, damage, number, date or name? Rewording, summarizing, and calling "
-                        "the writer \"the client\" are not new facts. An injury, damage or treatment that the evidence "
-                        "does not mention IS a new fact, even when the statement says the client reports it. "
-                        "Answer Yes only for a new fact."
-                        if evidence_text.strip() else
-                        f"Risk: {risk_definition}\n\nText: {user_text}\n\nDoes the text show this risk?")
-            payload = {"model_id": watsonx_model(), "project_id": os.environ["WATSONX_PROJECT_ID"],
-                       "messages": [{"role": "system", "content": "You are a strict checker. "
-                                     "Answer with exactly one word: Yes or No."},
-                                    {"role": "user", "content": question}],
-                       "max_tokens": 5, "temperature": 0}
-            headers = {"Authorization": f"Bearer {token or watsonx_token()}"}
-            url = f"{WATSONX_URL}/ml/v1/text/chat?version={WATSONX_VERSION}"
-            # The Lite plan allows only a few requests per second; a 429 used to leave a statement
-            # "Not checked". Wait as asked (Retry-After) and try again, up to 3 times.
-            for attempt in range(4):
-                try:
-                    out = _post(url, payload, headers=headers, timeout=30)
-                    return _yes_no(out["choices"][0]["message"]["content"])
-                except urllib.error.HTTPError as exc:
-                    if exc.code not in (429, 503) or attempt == 3:
-                        raise
-                    retry_after = exc.headers.get("Retry-After", "") if exc.headers else ""
-                    time.sleep(min(float(retry_after), 8) if retry_after.isdigit() else 1.5 * 2 ** attempt)
+            if evidence_text.strip():
+                system, question = WATSONX_GROUNDEDNESS_SYSTEM, (
+                    f"Evidence:\n{evidence_text}\n\nStatement: {user_text}\n\n"
+                    "Is the statement UNSUPPORTED by the evidence?")
+            else:
+                system = "You are a strict checker. Answer with exactly one word: Yes or No."
+                question = f"Risk: {risk_definition}\n\nText: {user_text}\n\nDoes the text show this risk?"
+            out = _watsonx_post("/ml/v1/text/chat", {
+                "model_id": watsonx_model(), "max_tokens": 5, "temperature": 0,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": question}]},
+                timeout=30, token=token)
+            return _yes_no(out["choices"][0]["message"]["content"])
     except Exception:
         return None
     return None
