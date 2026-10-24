@@ -231,7 +231,9 @@ def guardian_check(user_text: str, risk_definition: str, evidence_text: str,
             question = (f"Evidence:\n{evidence_text}\n\nStatement: {user_text}\n\n"
                         "Does the statement add a specific fact that the evidence does not mention, such as "
                         "an event, injury, damage, number, date or name? Rewording, summarizing, and calling "
-                        "the writer \"the client\" are not new facts. Answer Yes only for a new fact."
+                        "the writer \"the client\" are not new facts. An injury, damage or treatment that the evidence "
+                        "does not mention IS a new fact, even when the statement says the client reports it. "
+                        "Answer Yes only for a new fact."
                         if evidence_text.strip() else
                         f"Risk: {risk_definition}\n\nText: {user_text}\n\nDoes the text show this risk?")
             payload = {"model_id": watsonx_model(), "project_id": os.environ["WATSONX_PROJECT_ID"],

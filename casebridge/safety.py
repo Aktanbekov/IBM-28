@@ -225,6 +225,45 @@ def check_conclusions(brief: CaseBrief, evidence_texts: dict[str, str]) -> int:
     return flagged
 
 
+# --- Injuries and damage --------------------------------------------------------------------
+# The most harmful invention in a brief is an injury or damage nobody reported ("The client
+# reports being injured" from a note that only says the car was hit). A statement that talks about
+# an injury, or about damage, needs its cited evidence to talk about one too. Whole topics are
+# compared, not exact words, so "neck pain" is supported by "my neck hurts".
+CLAIM_TOPICS = {
+    "an injury": r"injur\w*|hurt\w*|pain\w*|ache\w*|aching|sore\w*|bruis\w*|fractur\w*|whiplash|sprain\w*|"
+                 r"strain\w*|bleed\w*|wound\w*|concussion|swell\w*|swollen|treat\w*|hospital\w*|\bER\b|"
+                 r"emergency room|ambulance|doctor|physician|clinic|x-?ray|MRI|CT scan|medical|diagnos\w*|"
+                 r"therap\w*|stitches|lesion|duele|dolor|herid\w*|lesi[oó]n|đau|bị thương",
+    "damage": r"damag\w*|dent\w*|crush\w*|scratch\w*|smash\w*|totaled|totalled|wreck\w*|repair\w*|"
+              r"estimate|destroy\w*|crack\w*|shatter\w*|bumper|fender|da[nñ]o\w*|abolla\w*|hư hỏng",
+}
+CLAIM_RES = {topic: re.compile(p, re.I) for topic, p in CLAIM_TOPICS.items()}
+
+
+def unsupported_claims(text: str, cited_texts: list[str]) -> list[str]:
+    """Topics (an injury, damage) a statement raises that none of its cited evidence mentions."""
+    evidence = " ".join(cited_texts)
+    return [topic for topic, rx in CLAIM_RES.items() if rx.search(text) and not rx.search(evidence)]
+
+
+def check_claims(brief: CaseBrief, evidence_texts: dict[str, str]) -> int:
+    """Flag facts (and a model-written summary) that mention an injury or damage the evidence doesn't."""
+    flagged = 0
+    for section in ("timeline", "parties", "injuries", "damages"):
+        for f in getattr(brief, section):
+            topics = unsupported_claims(f.text, [evidence_texts[s] for s in f.sources if s in evidence_texts])
+            if topics:
+                f.guardian_flags.append(f"⚠ Mentions {' and '.join(topics)} [{', '.join(f.sources)}] doesn't")
+                flagged += 1
+    if brief.engine != "rules":
+        topics = unsupported_claims(brief.summary, list(evidence_texts.values()))
+        if topics:
+            brief.summary_guardian_flags.append(f"⚠ Mentions {' and '.join(topics)} the evidence doesn't")
+            flagged += 1
+    return flagged
+
+
 def is_exact_flag(flag: str) -> bool:
     """A flag from a check that can't be wrong about what it found: a number or a fault word that is
     not in the cited text. The AI fact check ("Not grounded") is a model's opinion: it marks a
@@ -274,10 +313,11 @@ def apply_guardrails(brief: CaseBrief, valid_ids: set[str],
     if blocked:
         brief.warnings.append(f"Blocked {blocked} statement(s) that read like legal advice or outcome predictions.")
 
-    wrong = conclusions = 0
+    wrong = conclusions = claims = 0
     if evidence_texts is not None:
         wrong = check_numbers(brief, evidence_texts)
         conclusions = check_conclusions(brief, evidence_texts)
+        claims = check_claims(brief, evidence_texts)
     set_aside = _set_aside_flagged(brief)
     kept = [f for section in ("timeline", "parties", "injuries", "damages") for f in getattr(brief, section)]
     brief.checks.append({
@@ -297,6 +337,14 @@ def apply_guardrails(brief: CaseBrief, valid_ids: set[str],
         if conclusions:
             brief.warnings.append(f"Flagged {conclusions} statement(s) that draw a conclusion about fault "
                                   "the evidence doesn't state.")
+        if claims:
+            brief.warnings.append(f"Flagged {claims} statement(s) that mention an injury or damage the "
+                                  "evidence they cite doesn't mention.")
+        brief.checks.append({
+            "id": "claims", "name": "Injuries and damage", "status": "flag" if claims else "pass",
+            "detail": (f"{claims} statement{' mentions' if claims == 1 else 's mention'} an injury or damage "
+                       "that the evidence it cites never mentions." if claims else
+                       "Every injury and every bit of damage is mentioned in the evidence cited.")})
         brief.checks.append({
             "id": "conclusions", "name": "Fault words", "status": "flag" if conclusions else "pass",
             "detail": (f"{conclusions} statement{'' if conclusions == 1 else 's'} called someone at fault, "

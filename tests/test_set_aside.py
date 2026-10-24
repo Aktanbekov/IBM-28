@@ -30,12 +30,11 @@ def _granite_brief(monkeypatch, verdict):
 
 
 def test_fact_check_doubt_marks_but_never_removes(monkeypatch):
-    b = _granite_brief(monkeypatch, lambda t: "injuries" in t or "damage" in t)
-    assert [f.text for f in b.injuries] == ["The client suffered injuries in the rear-end collision."]
-    assert b.injuries[0].guardian_flags and b.damages[0].guardian_flags
-    assert not any(c["id"] == "set_aside" for c in b.checks)
+    b = _granite_brief(monkeypatch, lambda t: "rear-ended the client's vehicle" in t)
+    assert [f.text for f in b.parties] == ["The other driver rear-ended the client's vehicle."]
+    assert b.parties[0].guardian_flags
     stats = scoreboard.brief_stats(EV, b)
-    assert (stats["facts"], stats["fact_check_flagged"], stats["set_aside"]) == (4, 2, 0)
+    assert (stats["facts"], stats["fact_check_flagged"]) == (2, 1)
 
 
 def test_fact_check_rejecting_everything_keeps_the_brief(monkeypatch):
@@ -43,12 +42,35 @@ def test_fact_check_rejecting_everything_keeps_the_brief(monkeypatch):
     rear-end at a red light that E1 states, and the brief came out empty."""
     b = _granite_brief(monkeypatch, lambda t: True)
     assert [f.text for f in b.timeline] == ["The client was rear-ended at a red light on Stevens Creek Blvd."]
-    assert len(b.parties) == len(b.injuries) == len(b.damages) == 1
+    assert len(b.parties) == 1
 
 
-def test_failed_fact_check_keeps_every_statement(monkeypatch):
+def test_failed_fact_check_keeps_every_supported_statement(monkeypatch):
     b = _granite_brief(monkeypatch, lambda t: None)
-    assert sum(len(getattr(b, s)) for s in ("timeline", "parties", "injuries", "damages")) == 4
+    assert len(b.timeline) == len(b.parties) == 1
+
+
+def test_invented_injury_and_damage_are_set_aside(monkeypatch):
+    """Live on watsonx: E1 mentions no injury and no damage, yet Granite wrote both, unmarked."""
+    reply = dict(GRANITE_REPLY, injuries=[{"text": "The client reports being injured in the collision.",
+                                           "sources": ["E1"]}],
+                 damages=[{"text": "The client's vehicle was damaged in the rear-end collision.", "sources": ["E1"]}])
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
+    monkeypatch.setattr(llm, "chat_json", lambda s, u: reply)
+    monkeypatch.setattr(llm, "checker", lambda: None)
+    b = brief.build(EV)
+    assert b.injuries == [] and b.damages == []
+    aside = next(c for c in b.checks if c["id"] == "set_aside")["items"]
+    assert {i["section"] for i in aside} == {"injuries", "damages"}
+    assert scoreboard.brief_stats(EV, b)["set_aside"] == 2
+
+
+def test_reworded_injury_is_kept():
+    b = CaseBrief("auto_accident", "plaintiff", "Santa Clara", "", injuries=[
+        Fact("The client reports neck pain.", ["E1"]), Fact("The bumper was dented.", ["E2"])])
+    safety.apply_guardrails(b, {"E1", "E2"}, {"E1": "My neck hurts since the crash.",
+                                              "E2": "Photo: rear bumper damage."})
+    assert len(b.injuries) == 2
 
 
 def test_set_aside_statements_never_reach_lawyers():
