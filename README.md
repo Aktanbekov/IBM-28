@@ -7,9 +7,9 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-24 01:36 (commit `616cbc0`) |
-| Tests | passing (603 passed) |
-| Commits | 110 |
+| Last updated | 2026-10-24 01:43 (commit `3b54a69`) |
+| Tests | passing (605 passed) |
+| Commits | 116 |
 | Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Nurislam, Shahzod Bakhriev |
 <!-- AUTO:STATUS:END -->
 
@@ -159,6 +159,9 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 
 | Date | Author | Change |
 |---|---|---|
+| 2026-10-24 | Claude | ui: show statements marked for a second look in the trust strip |
+| 2026-10-24 | Claude | ai: keep fact-check doubts in the brief, ask the watsonx checker about new facts only |
+| 2026-10-24 | Claude | safety: only exact checks set a statement aside; the AI fact check only marks it |
 | 2026-10-24 | Claude | ui: list set-aside statements under How it was checked and in the trust strip |
 | 2026-10-24 | Claude | ai: attribute claims in the prompt, rebuild a failing summary, retry watsonx rate limits |
 | 2026-10-24 | Claude | safety: set aside statements a check rejects, flag fault words the evidence doesn't use |
@@ -166,7 +169,4 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 | 2026-10-24 | Claude | ai: show IBM's error body when the watsonx chat self-check fails |
 | 2026-10-23 | Aktanbekov | Shared lawyer database, delete my case, data panel, Granite tuned on a real run |
 | 2026-10-23 | Aktanbekov | ingest: read form-style PDFs one field per sentence, explain scanned PDFs |
-| 2026-10-24 | Claude | ui: cap uploads at 25 MB and show file names as typed, not as Markdown |
-| 2026-10-24 | Claude | safety: hide names with no cue using common first-name and surname lists |
-| 2026-10-24 | Claude | safety: close advice, redaction and file-name injection gaps from security sweep |
 <!-- AUTO:CHANGELOG:END -->
