@@ -11,7 +11,12 @@ from .models import CaseBrief, Fact
 ADVICE_PATTERNS = [
     r"\byou (will|would|should|are going to) (win|lose)\b",
     r"\byou should (accept|sign|reject|settle|sue|file)\b",
-    r"\b(your |the )?case is worth\b",
+    r"\bshould(n't| not)? you (accept|sign|reject|settle|sue|file)\b",
+    r"\b(case|claim) (is|could be|may be|might be) worth\s*(\$|\d|a lot|more|up to|around|about|at least)",
+    # Spanish: "debería firmar", "su caso vale", "ganará el caso"
+    r"\bdeber[ií]a(s|n)? (aceptar|firmar|rechazar|demandar|llegar a un acuerdo|conformarse)\b",
+    r"\b(su|tu) (caso|reclamo) vale\b",
+    r"\b(usted )?(ganar[áa]|perder[áa]|vas? a ganar|vas? a perder)\b",
     r"\bguarantee",
     r"\b(strong|weak|winning|losing) case\b",
     r"\bsettle for \$",
@@ -64,7 +69,7 @@ def apply_guardrails(brief: CaseBrief, valid_ids: set[str]) -> CaseBrief:
 # brief after the client accepts them.
 
 _UP, _LO = "A-ZÀ-ÖØ-Þ", "a-zß-öø-ÿ"
-_WORD = rf"[{_UP}][{_LO}'’-]+"
+_WORD = rf"[{_UP}](?:['’][{_UP}])?[{_LO}]+(?:[-'’][{_UP}]?[{_LO}]+)*"   # also O'Brien, Smith-Jones
 NAME = rf"({_WORD}(?:\s{_WORD}){{0,2}})"          # "Maria Lopez", "Rosa María Martínez"
 _DATE = (r"(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2}|"
          r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
@@ -76,7 +81,11 @@ PII_PATTERNS = [  # (regex, replacement); order matters: specific before generic
                 rf"[Nn]acid[oa] el)\s*[:\-]?\s*{_DATE}"), r"\1 [REDACTED]"),
     (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN]"),
     (re.compile(r"(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\b\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b"), "[PHONE]"),
-    (re.compile(r"\b\d{3}[.-]\d{4}\b"), "[PHONE]"),                       # 555-0142
+    (re.compile(r"\b\d{3}\s*[.-]\s*\d{4}\b"), "[PHONE]"),                 # 555-0142, 555 - 0142
+    (re.compile(r"\b(?:(?:zero|oh|one|two|three|four|five|six|seven|eight|nine|cero|uno|dos|tres|"
+                r"cuatro|cinco|seis|siete|ocho|nueve)[\s,-]+){6,}"
+                r"(?:zero|oh|one|two|three|four|five|six|seven|eight|nine|cero|uno|dos|tres|cuatro|"
+                r"cinco|seis|siete|ocho|nueve)\b", re.I), "[PHONE]"),          # spelled-out digits
     (re.compile(r"\b[A-HJ-NPR-Z0-9]{17}\b"), "[VIN]"),
     (re.compile(r"\b\d[A-Z]{3}\d{3}\b"), "[PLATE]"),                      # California plate
     (re.compile(r"\b([Pp]late|[Pp]laca|[Ll]icense plate)(\s*(?:no\.?|number|#))?\s*[:#]?\s*[A-Z0-9-]{2,8}\b"),
@@ -108,6 +117,16 @@ ROLE_PATTERNS = [
                   rf"\b(?:Dr|Mr|Ms|Mrs|Sr|Sra|Srta)\.?\s+{NAME}", rf"(?:named|called|llamad[oa]) {NAME}", rf"[Tt]his is {NAME}",
                   rf"(?:Sincerely|Regards|Atentamente),?\s+{NAME}"]),
 ]
+# Speech-to-text can drop capitals: "my name is rosa martinez". Only unambiguous cues here.
+LOWER_INTRO_RE = re.compile(r"(?i:my name is|me llamo|mi nombre es|patient:|nombre:)\s+"
+                            rf"([{_LO}'’-]+(?:\s[{_LO}'’-]+){{0,2}})")
+INTRO_STOP = {"and", "y", "i", "im", "my", "from", "de", "del", "la", "el", "is", "es", "but", "pero",
+              "so", "and", "the", "a", "was", "fui", "estaba", "soy", "am", "me", "mi", "tengo"}
+# Names that are also everyday words: replaced only when capitalized, to keep the brief readable.
+COMMON_WORDS = {"will", "mark", "grant", "bill", "may", "june", "april", "rose", "frank", "art", "hope",
+                "joy", "faith", "pat", "sue", "dawn", "rob", "ray", "guy", "jack", "chase", "page",
+                "lane", "wade", "ford", "cole", "shaw", "rich", "drew", "gay", "penny", "summer",
+                "sky", "river", "dean", "nick", "victor", "angel"}
 # Capitalized words the name patterns can swallow but which are never names.
 NOT_NAMES = {"I", "The", "And", "But", "So", "My", "He", "She", "They", "We", "His", "Her", "Our",
              "Okay", "Yes", "No", "Not", "Very", "Really", "Just", "Sorry", "Scared", "Fine", "Here",
@@ -130,6 +149,14 @@ def find_names(texts: list[str]) -> dict[str, str]:
                 # Stop at the first non-name word: "Kevin Holt Said" is rare, "Holt said" is lowercase.
                 if words:
                     names.setdefault(" ".join(words), role)
+    for m in LOWER_INTRO_RE.finditer(joined):
+        words = []
+        for w in m.group(1).split():
+            if w in INTRO_STOP:
+                break
+            words.append(w)
+        if words:
+            names.setdefault(" ".join(words).title(), "[CLIENT]")
     # Also catch first-name-only and surname-only mentions ("Maria said", "Ms. Lopez").
     for full, role in list(names.items()):
         for part in full.split():
@@ -140,18 +167,24 @@ def find_names(texts: list[str]) -> dict[str, str]:
     return names
 
 
+def _name_re(name: str) -> re.Pattern:
+    """Whole-name match, any case ("rosa", "ROSA"), except names that are everyday words."""
+    flags = 0 if name.lower() in COMMON_WORDS else re.I
+    return re.compile(rf"(?<![\w\[]){re.escape(name)}(?![\w\]])", flags)
+
+
 def redact(text: str, names: dict[str, str]) -> str:
     for rx, token in PII_PATTERNS:
         text = rx.sub(token, text)
     for name in sorted(names, key=len, reverse=True):
-        text = re.sub(rf"(?<![\w\[]){re.escape(name)}(?![\w\]])", names[name], text)
+        text = _name_re(name).sub(names[name], text)
     return re.sub(r"(\[[A-Z #]+\])(?:\s+\1)+", r"\1", text)   # "[CLIENT] [CLIENT]" -> "[CLIENT]"
 
 
 def find_leaks(data, names: dict[str, str]) -> list[str]:
     """Final check on anything a lawyer will see: list every known name or PII pattern still present."""
     blob = str(data)
-    leaks = [n for n in names if re.search(rf"(?<![\w\[]){re.escape(n)}(?![\w\]])", blob)]
+    leaks = [n for n in names if _name_re(n).search(blob)]
     for rx, _ in PII_PATTERNS:
         leaks += [m.group(0) for m in rx.finditer(blob) if "[" not in m.group(0)]
     return [x for i, x in enumerate(leaks) if x not in leaks[:i] and not any(x in y for y in leaks if y != x)]
