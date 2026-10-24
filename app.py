@@ -609,12 +609,12 @@ def my_case() -> dict | None:
 
 def show_data_panel():
     """Where your data goes, in plain words, and a way to delete it. Reflects the engine actually in use."""
-    backend, photos_out = llm.backend(), bool(os.environ.get("ANTHROPIC_API_KEY"))
+    backend, photos_out = llm.backend(), bool(os.environ.get("OPENAI_API_KEY"))
     sent = {"watsonx": "Your evidence text is sent to IBM watsonx so Granite can write the brief.",
             "ollama": "Nothing for the brief: Granite runs on this computer."}.get(backend, "Nothing: the brief is "
                                                                                           "built on this computer.")
     if photos_out:
-        sent += " Photos you upload are sent to Claude vision (Anthropic) to read them, with their location removed."
+        sent += " Photos you upload are sent to OpenAI vision to read them, with their location removed."
     local = ["redaction", "deadlines", "voice transcription (faster-whisper)"]
     if llm.checker() and "local" in llm.checker():
         local.append("the Granite Guardian fact check")

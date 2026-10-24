@@ -151,8 +151,26 @@ _MONTH_NUMBERS = {m: str(i) for i, m in enumerate(
 _MONTH_NAME_RE = re.compile(r"\b(" + "|".join(f"{m}|{m[:3]}" for m in _MONTH_NUMBERS) + r")\b\.?", re.I)
 
 
+_UNITS = "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen " \
+         "seventeen eighteen nineteen".split()
+_TENS = "twenty thirty forty fifty sixty seventy eighty ninety".split()
+_WORD_NUMBER_RE = re.compile(
+    rf"\b(?:({'|'.join(_TENS)})(?:[- ]({'|'.join(_UNITS[1:10])}))?|({'|'.join(_UNITS)}))\b", re.I)
+
+
+def _word_numbers(text: str) -> set[str]:
+    """ "seventy-three years old" supports a statement that says 73."""
+    found = set()
+    for tens, unit, small in _WORD_NUMBER_RE.findall(text):
+        if small:
+            found.add(str(_UNITS.index(small.lower())))
+        else:
+            found.add(str(20 + 10 * _TENS.index(tens.lower()) + (_UNITS.index(unit.lower()) if unit else 0)))
+    return found
+
+
 def _evidence_numbers(text: str) -> set[str]:
-    found = _numbers(text)
+    found = _numbers(text) | _word_numbers(text)
     for m in _MONTH_NAME_RE.findall(text):   # "October 2" also supports "10/2"
         found.add(next(v for k, v in _MONTH_NUMBERS.items() if k.startswith(m.lower())))
     for h, _ in re.findall(r"\b(\d{1,2}):(\d{2})\b", text):   # 17:42 also supports "5:42 pm"

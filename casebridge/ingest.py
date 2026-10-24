@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -269,8 +270,23 @@ def photo_text(data: bytes, file_name: str) -> tuple[str, str]:
         return f"[photo could not be read automatically ({type(exc).__name__})]", "photo"
 
 
+OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+
+
+def _openai_chat(messages: list, max_tokens: int, system: str = "") -> str:
+    """One OpenAI chat call (standard library only, like llm.py). Returns the reply text."""
+    model = os.environ.get("OPENAI_VISION_MODEL", "gpt-4.1")
+    msgs = ([{"role": "system", "content": system}] if system else []) + messages
+    req = urllib.request.Request(
+        OPENAI_URL, data=json.dumps({"model": model, "messages": msgs, "max_tokens": max_tokens,
+                                     "temperature": 0}).encode(),
+        headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}", "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return json.loads(resp.read())["choices"][0]["message"]["content"] or ""
+
+
 def _photo_text(data: bytes, file_name: str) -> tuple[str, str]:
-    """Run two-pass Claude analysis on a photo.
+    """Run two-pass OpenAI vision analysis on a photo.
 
     Pass 1 – verbatim OCR of all visible text.
     Pass 2 – legal-relevance filter; returns structured JSON.
@@ -279,19 +295,10 @@ def _photo_text(data: bytes, file_name: str) -> tuple[str, str]:
     legible structured document, otherwise "photo".
 
     Falls back to ("[photo uploaded, no description yet]", "photo") when
-    ANTHROPIC_API_KEY is not set, so offline / rules mode still works.
+    OPENAI_API_KEY is not set, so offline / rules mode still works.
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
+    if not os.environ.get("OPENAI_API_KEY"):
         return "[photo uploaded, no description yet]", "photo"
-
-    try:
-        import anthropic
-    except ImportError:
-        return "[photo uploaded — pip install anthropic for auto-analysis]", "photo"
-
-    client = anthropic.Anthropic(api_key=api_key)
-    model = "claude-sonnet-5-5"
 
     # --- Pass 1: verbatim OCR ---
     # Sent without its metadata: the photo's GPS location never leaves the machine.
@@ -304,19 +311,13 @@ def _photo_text(data: bytes, file_name: str) -> tuple[str, str]:
         "numbers) exactly as written. If any part is blurry, cut off, or illegible, say so "
         "explicitly rather than guessing what it might say. Output only the transcribed text."
     )
-    ocr_resp = client.messages.create(
-        model=model,
-        max_tokens=1024,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {"type": "base64",
-                                             "media_type": media_type, "data": image_b64}},
-                {"type": "text", "text": ocr_prompt},
-            ],
-        }],
-    )
-    raw = next((b.text for b in ocr_resp.content if b.type == "text"), "")
+    raw = _openai_chat([{
+        "role": "user",
+        "content": [
+            {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{image_b64}"}},
+            {"type": "text", "text": ocr_prompt},
+        ],
+    }], max_tokens=1024)
     if not raw.strip():
         return "[photo: no text detected]", "photo"
 
@@ -354,14 +355,8 @@ def _photo_text(data: bytes, file_name: str) -> tuple[str, str]:
         f"Fill in the following JSON schema with only the legally relevant facts.\n"
         f"Schema:\n{json.dumps(schema, indent=2)}"
     )
-    analysis_resp = client.messages.create(
-        model=model,
-        max_tokens=2048,
-        system=analysis_system,
-        messages=[{"role": "user", "content": analysis_prompt}],
-    )
-    analysis_raw = next((b.text for b in analysis_resp.content if b.type == "text"), "")
-    analysis_raw = analysis_raw.strip()
+    analysis_raw = _openai_chat([{"role": "user", "content": analysis_prompt}],
+                                max_tokens=2048, system=analysis_system).strip()
     if analysis_raw.startswith("```"):
         analysis_raw = analysis_raw.split("```")[1]
         if analysis_raw.startswith("json"):
