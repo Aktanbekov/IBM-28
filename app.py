@@ -563,7 +563,13 @@ if page.startswith("1"):
                     new.append(ev)
                     continue
                 elif kind == "photo":
-                    text = captions.get(up.name) or f"[{kind} uploaded, no description yet]"
+                    caption = (captions.get(up.name) or "").strip()
+                    with st.spinner(f"Reading {up.name}…"):
+                        auto, auto_kind = ingest.photo_text(data, up.name)
+                    if auto.startswith("["):   # no key, offline or unreadable: the client's caption is the evidence
+                        text = caption or f"[{kind} uploaded, no description yet]"
+                    else:                      # the client's own words first, then what was read from the photo
+                        text, kind = f"{caption} {auto}".strip(), auto_kind
                     # Time goes to the timeline; GPS is written so redaction hides it from lawyers.
                     # Use a local variable so the outer `note` (typed text) is not clobbered.
                     photo_note_text = ingest.photo_note(ingest.photo_metadata(data))
