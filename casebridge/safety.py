@@ -178,7 +178,9 @@ PII_PATTERNS = [  # (regex, replacement); order matters: specific before generic
     (re.compile(rf"(?<![\d.]){_GPS_NUM}\s*[,;]\s*{_GPS_NUM}\b"), "[LOCATION]"),
     (re.compile(rf"{_DMS}[NS]\s*,?\s*{_DMS}[EW]\b"), "[LOCATION]"),
     # Email, including "name @ host", the full-width ＠ and "name(at)host".
-    (re.compile(r"\b[\w.+-]+\s*(?:@|＠|\(at\)|\[at\])\s*[\w-]+(?:\.[\w-]+)+\b", re.I), "[EMAIL]"),
+    # Starts only where a run of email characters starts (not at every \b inside it): with \b,
+    # a long "word-word-word-..." with no @ backtracked from every position and took seconds.
+    (re.compile(r"(?<![\w.+-])[\w.+-]+\s*(?:@|＠|\(at\)|\[at\])\s*[\w-]+(?:\.[\w-]+)+\b", re.I), "[EMAIL]"),
     # Dates of birth after a label, in many formats, English and Spanish.
     (re.compile(rf"\b((?i:DOB|D\.O\.B\.?|date of birth|born(?: on| in)?|fecha de nacimiento|"
                 rf"nacid[oa] (?:el|en)))\s*[:\-]?\s*{_DATE}\b"), r"\1 [REDACTED]"),
