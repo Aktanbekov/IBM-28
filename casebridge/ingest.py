@@ -37,13 +37,23 @@ _whisper_model = None
 _whisper_error: Exception | None = None   # remembered so a missing model doesn't stall every upload
 
 
+MAX_PDF_PAGES = 50   # a brief needs a few pages; a 5,000-page upload would stall the app
+
+
 def pdf_text(data: bytes) -> str:
     try:
         from pypdf import PdfReader
     except ImportError:
         return "[PDF text extraction unavailable: pip install pypdf]"
-    reader = PdfReader(io.BytesIO(data))
-    return "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+    try:   # a damaged, encrypted or hostile PDF must not crash the app
+        reader = PdfReader(io.BytesIO(data))
+        pages = reader.pages[:MAX_PDF_PAGES]
+        text = "\n".join(page.extract_text() or "" for page in pages).strip()
+    except Exception as exc:
+        return f"[Could not read this PDF ({type(exc).__name__}). Please type what it says.]"
+    if len(reader.pages) > MAX_PDF_PAGES:
+        text += f"\n[Only the first {MAX_PDF_PAGES} pages were read.]"
+    return text or "[No text found in this PDF. If it is a scan, please type what it says.]"
 
 
 def _load_whisper():
@@ -209,7 +219,32 @@ def kind_for(file_name: str) -> str:
     return "note"
 
 
+_VISION_TYPES = {"JPEG": "image/jpeg", "PNG": "image/png", "GIF": "image/gif", "WEBP": "image/webp"}
+
+
+def _image_for_upload(data: bytes) -> tuple[bytes, str]:
+    """Photo bytes with EXIF/GPS removed, in a format the vision API accepts (anything else -> PNG)."""
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(data))
+        if img.format in _VISION_TYPES:
+            return strip_metadata(data), _VISION_TYPES[img.format]
+        out = io.BytesIO()
+        img.convert("RGB").save(out, format="PNG")     # e.g. HEIC (with pillow-heif), BMP, TIFF
+        return out.getvalue(), "image/png"
+    except Exception:
+        raise ValueError("unsupported image format")
+
+
 def photo_text(data: bytes, file_name: str) -> tuple[str, str]:
+    """Never raises: any failure returns a "[...]" placeholder so the client's caption is used instead."""
+    try:
+        return _photo_text(data, file_name)
+    except Exception as exc:   # network down, bad key, rate limit, unreadable image
+        return f"[photo could not be read automatically ({type(exc).__name__})]", "photo"
+
+
+def _photo_text(data: bytes, file_name: str) -> tuple[str, str]:
     """Run two-pass Claude analysis on a photo.
 
     Pass 1 – verbatim OCR of all visible text.
@@ -234,9 +269,9 @@ def photo_text(data: bytes, file_name: str) -> tuple[str, str]:
     model = "claude-sonnet-5-5"
 
     # --- Pass 1: verbatim OCR ---
-    ext = Path(file_name).suffix.lower()
-    media_type = "image/jpeg" if ext in (".jpg", ".jpeg") else "image/png"
-    image_b64 = base64.standard_b64encode(data).decode("utf-8")
+    # Sent without its metadata: the photo's GPS location never leaves the machine.
+    image, media_type = _image_for_upload(data)
+    image_b64 = base64.standard_b64encode(image).decode("utf-8")
 
     ocr_prompt = (
         "Transcribe all the text visible in this photo of a document, as accurately and "

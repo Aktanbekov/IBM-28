@@ -14,6 +14,7 @@ import os
 import re
 import threading
 import time
+import urllib.parse
 import urllib.request
 from datetime import date
 from pathlib import Path
@@ -43,7 +44,7 @@ OLLAMA_GUARDIAN_MODEL = os.getenv("OLLAMA_GUARDIAN_MODEL", "granite3-guardian")
 
 def _post(url: str, payload: dict, headers: dict | None = None, form: bool = False, timeout=120) -> dict:
     if form:
-        data = "&".join(f"{k}={v}" for k, v in payload.items()).encode()
+        data = urllib.parse.urlencode(payload).encode()   # an API key may contain + or &
         ctype = "application/x-www-form-urlencoded"
     else:
         data = json.dumps(payload).encode()

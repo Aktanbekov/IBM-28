@@ -14,18 +14,22 @@ before it reaches any screen.
 
 **How it works:**
 
-[`casebridge/safety.py`](../casebridge/safety.py) contains `ADVICE_PATTERNS` — twelve regex
-patterns that cover English and Spanish:
+[`casebridge/safety.py`](../casebridge/safety.py) contains `ADVICE_PATTERNS`, regex patterns
+in English, Spanish and Vietnamese:
 
-- outcome predictions: `"you will win"`, `"you would lose"`, `"ganará el caso"`
-- action directives: `"you should sign"`, `"you should settle"`, `"debería firmar"`
-- case valuations: `"case is worth $…"`, `"su caso vale"`, `"expected settlement of"`
+- outcome predictions: `"you'll win"`, `"you're likely to lose"`, `"a jury would side with you"`, `"ganará"`, `"bà sẽ thắng"`
+- action directives: `"you should probably accept"`, `"don't sign the release"`, `"I'd take the money"`,
+  `"I recommend"`, `"it would be wise to"`, `"le conviene aceptar"`, `"bà nên ký"`
+- case valuations: `"your claim is easily worth six figures"`, `"you could get $50,000"`,
+  `"you have a good case"`, `"su caso vale"`, `"vụ này đáng giá"`
 
-[`is_advice(text)`](../casebridge/safety.py) returns `True` on any match.
+[`is_advice(text)`](../casebridge/safety.py) returns `True` on any match. It reads the text the
+same way the injection check does, so zero-width spaces, look-alike letters and curly apostrophes
+can't hide a phrase.
 [`apply_guardrails(brief, valid_ids)`](../casebridge/safety.py) calls `is_advice` on every
-sentence in the brief's `timeline`, `parties`, `injuries`, and `damages` fields. A sentence that
-matches is removed and a warning is appended to the brief. The summary field is scrubbed
-separately.
+sentence in the brief's `timeline`, `parties`, `injuries`, and `damages` fields, including
+the `when` field. A sentence that matches is removed and a warning is appended to the brief. In
+the summary, only the sentences that read as advice are removed.
 
 The guardrail deliberately does **not** block false positives: `"the insurer said I should sign"`
 (a client quoting a letter) and `"you should contact a lawyer"` (a referral) both pass through.
@@ -43,6 +47,7 @@ The guardrail deliberately does **not** block false positives: `"the insurer sai
 | False positive: referral to a lawyer | [`test_refer_to_lawyer_is_not_blocked`](../tests/test_bob_edge_cases.py) |
 | False positive: stated settlement amount | [`test_insurer_offered_amount_is_not_timeline_not_blocked`](../tests/test_bob_edge_cases.py) |
 | All LLM facts blocked when all contain advice | [`test_all_facts_get_advice_flag`](../tests/test_guardian.py) |
+| 38 indirect, hidden-character and Vietnamese phrasings; 27 facts that must pass | [`test_advice_is_blocked`, `test_facts_are_not_blocked`](../tests/test_security_sweep.py) |
 
 ---
 
@@ -214,6 +219,13 @@ letters, zero-width spaces, line breaks, Vietnamese), 30 redaction leaks (OCR di
 run as normal tests. Review also found and fixed a crash on month-end and February 29 incident
 dates.
 
+A later security sweep found and fixed 31 advice phrasings the guardrail missed ("you'll win",
+"I'd take the money"), 15 more redaction leaks (family members' names, names in capitals,
+"Officer J. Ramirez", social media handles, spaced plates), names with no cue around them
+("Kevin said…", now caught with common first-name and surname lists), hidden instructions in file names,
+model replies with the wrong JSON types that crashed the brief, and damaged PDFs that crashed
+the app. See [`tests/test_security_sweep.py`](../tests/test_security_sweep.py).
+
 What is still open:
 - Redaction and injection detection are pattern-based. A new phrasing or format can still slip
   through; the leak check and the client's preview are the backstops, not a guarantee.
@@ -221,4 +233,4 @@ What is still open:
   discovery, the lawsuit deadline after a government claim is rejected) are not handled. Every
   date is labelled "confirm with a lawyer". See [`docs/LEGAL_RULES.md`](LEGAL_RULES.md).
 
-Current suite: **395 passed, 0 xfailed, 0 failed** (`pytest -q`).
+Current suite: **581 passed, 0 xfailed, 0 failed** (`pytest -q`).
