@@ -2,4 +2,4 @@ kind: document
 title: Urgent care visit summary
 file: urgent_care_summary.pdf
 ---
-Patient: Rosa M. Martinez, DOB 03/08/1984, MRN: 88213407. Seen October 9, 2026, 15:40. Diagnosis: right knee sprain and left wrist contusion after a fall on a wet floor. Treatment: knee brace, ice, ibuprofen. Seen by Dr. Anand Mehta. Follow up with orthopedics in 10 days; physical therapy recommended.
+Patient: Rosa M. Martinez, DOB 03/08/1984, MRN: 88213407. Seen October 9, 2026, 15:40. Patient states she slipped and fell at about 10:30 am in a grocery store. Diagnosis: right knee sprain and left wrist contusion after a fall on a wet floor. Treatment: knee brace, ice, ibuprofen. Seen by Dr. Anand Mehta. Follow up with orthopedics in 10 days; physical therapy recommended.

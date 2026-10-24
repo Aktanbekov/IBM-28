@@ -213,6 +213,195 @@ def warnings(evidence: list[Evidence]) -> list[str]:
     return out
 
 
+# --- Insurer-tactics alerts --------------------------------------------------------------
+# Common moves in insurer letters and calls that stressed people agree to without knowing what
+# they mean. Each alert explains the term in plain words and offers a question to bring to a
+# lawyer. It never says what to do, so it stays on the right side of the no-advice rule.
+# (The settlement-release warning lives in warnings() above, so it isn't repeated here.)
+
+INSURER_TACTICS = [
+    {"title": "Recorded statement requested",
+     "cues": ["recorded statement", "record a statement", "record your statement",
+              "grabar una declaración", "declaración grabada"],
+     "meaning": "The insurer wants to record you describing what happened. A recording can be "
+                "used later to question details of your claim.",
+     "ask": "Do I have to give a recorded statement, and can a lawyer be present if I do?"},
+    {"title": "\"Full and final\" settlement language",
+     "cues": ["full and final", "final settlement", "all claims", "any and all claims"],
+     "meaning": "An offer that would close every part of the claim, including injuries or costs "
+                "that only show up later.",
+     "ask": "Would this offer cover medical care I might still need?"},
+    {"title": "Medical records authorization",
+     "cues": ["medical authorization", "authorization to release", "hipaa", "all medical records",
+              "complete medical history", "enclosed authorization"],
+     "meaning": "A form that lets the insurer collect your medical history, sometimes far beyond "
+                "this injury.",
+     "ask": "Can the authorization be limited to this injury and this time period?"},
+    {"title": "Suggestion that you share the blame",
+     "cues": ["partly at fault", "partially at fault", "partly responsible", "share the fault",
+              "shared fault", "comparative fault", "comparative negligence"],
+     "meaning": "In California, a person's share of blame can reduce what a claim recovers, so this "
+                "wording matters.",
+     "ask": "How does shared fault work in California for a case like mine?"},
+    {"title": "Pressure to decide quickly",
+     "cues": ["resolve this quickly", "offer expires", "limited time", "today only", "act quickly",
+              "respond immediately", "as soon as possible to receive"],
+     "meaning": "Wording that pushes for a fast decision. Insurer deadlines are not the same as "
+                "legal filing deadlines.",
+     "ask": "Do I have to decide by this date, and can it be extended?"},
+    {"title": "Suggestion that a lawyer isn't needed",
+     "cues": ["don't need a lawyer", "do not need a lawyer", "don't need an attorney",
+              "no need for an attorney", "no need for a lawyer", "without involving lawyers"],
+     "meaning": "The insurer works for the other side. Many injury lawyers offer a free first "
+                "consultation.",
+     "ask": "Could a lawyer review this offer before I respond?"},
+]
+SHORT_WINDOW_DAYS = 45      # a response date this soon after the incident gets its own alert
+
+
+def insurer_alerts(evidence: list[Evidence]) -> list[dict]:
+    """Find insurer tactics in the evidence. Returns {"title", "meaning", "ask", "sources"}."""
+    alerts = []
+    for tactic in INSURER_TACTICS:
+        sources = [e.id for e in evidence if any(c in e.text.lower() for c in tactic["cues"])]
+        if sources:
+            alerts.append({"title": tactic["title"], "meaning": tactic["meaning"],
+                           "ask": tactic["ask"], "sources": sources})
+    # A response deadline only weeks after the incident: injuries may not be fully known yet.
+    start = incident_date(evidence)
+    if start:
+        for d in deadlines(evidence, "other"):
+            if d["basis"].startswith("[E"):        # response dates found in a document
+                days = (date.fromisoformat(d["date"]) - start).days
+                if 0 <= days <= SHORT_WINDOW_DAYS:
+                    alerts.append({
+                        "title": f"Short response window ({days} days after the incident)",
+                        "meaning": "Some injuries take weeks to be fully diagnosed. A decision this "
+                                   "early may happen before the full cost of care is known.",
+                        "ask": "Is it too early to know what this injury will cost?",
+                        "sources": [d["basis"].strip("[]")]})
+    return alerts
+
+
+# --- Contradiction check -----------------------------------------------------------------
+# Stressed people misremember, and forms get filled in wrong. When two pieces of evidence
+# disagree on a key detail, a lawyer wants to know on day one, not at a deposition. We only
+# compare things we can read reliably: the incident date and time, left/right body parts,
+# and licence plates. Every finding cites the evidence on each side.
+
+INCIDENT_CUES = re.compile(r"\b(collision|collided|crash|accident|hit|struck|rear-ended|fell|fall|"
+                           r"slipped|tripped|bit|bitten|incident)\b", re.I)
+BODY_SIDE_RE = re.compile(r"\b(left|right)\s+(knee|wrist|arm|leg|shoulder|ankle|hip|hand|foot|"
+                          r"elbow|eye|ear|side|rib|ribs|thumb|finger)\b", re.I)
+PLATE_RE = re.compile(r"\b\d[A-Z]{3}\d{3}\b")
+TIME_TOLERANCE_MIN = 30     # "around 5:40 pm" vs "17:42" is the same moment
+
+
+def _minutes(t: str) -> int | None:
+    """'5:40 pm' / '17:42' / '9 pm' -> minutes after midnight."""
+    m = re.match(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", t.strip(), re.I)
+    if not m:
+        return None
+    h, mins, ampm = int(m.group(1)), int(m.group(2) or 0), (m.group(3) or "").lower()
+    if ampm == "pm" and h < 12:
+        h += 12
+    if ampm == "am" and h == 12:
+        h = 0
+    return h * 60 + mins
+
+
+def _cite(found: dict) -> str:
+    """{'October 2, 2026': ['E1', 'E4']} -> 'October 2, 2026 [E1, E4]; ...'"""
+    return "; ".join(f"{value} [{', '.join(ids)}]" for value, ids in found.items())
+
+
+def contradictions(evidence: list[Evidence]) -> list[dict]:
+    """Key details that differ between evidence items. Returns {"topic", "text", "sources"}."""
+    out = []
+    dates: dict[str, list[str]] = {}
+    times: dict[str, list[str]] = {}
+    for ev in evidence:
+        for s in sentences(ev):
+            if not INCIDENT_CUES.search(s):
+                continue
+            d = parse_date(s)
+            if d:
+                dates.setdefault(f"{d:%B} {d.day}, {d.year}", []).append(ev.id)   # portable: no %-d
+            t = TIME_RE.search(s)
+            if t and ev.kind != "photo":         # photo captions describe when the photo was taken
+                times.setdefault(t.group(0), []).append(ev.id)
+    if len(dates) > 1:
+        out.append({"topic": "Date of the incident",
+                    "text": f"The evidence gives different dates for the incident: {_cite(dates)}.",
+                    "sources": sorted({i for ids in dates.values() for i in ids})})
+    mins = {t: _minutes(t) for t in times}
+    valid = [m for m in mins.values() if m is not None]
+    if valid and max(valid) - min(valid) > TIME_TOLERANCE_MIN:
+        out.append({"topic": "Time of the incident",
+                    "text": f"The evidence gives different times for the incident: {_cite(times)}.",
+                    "sources": sorted({i for ids in times.values() for i in ids})})
+
+    # Same body part on different sides in different documents ("right knee" vs "left knee").
+    sides: dict[str, dict[str, list[str]]] = {}
+    for ev in evidence:
+        for side, part in BODY_SIDE_RE.findall(ev.text):
+            sides.setdefault(part.lower(), {}).setdefault(side.lower(), [])
+            if ev.id not in sides[part.lower()][side.lower()]:
+                sides[part.lower()][side.lower()].append(ev.id)
+    for part, by_side in sides.items():
+        if len(by_side) > 1:
+            left, right = set(by_side["left"]), set(by_side["right"])
+            if left != right and not (left & right):   # both sides in one document is not a conflict
+                found = {f"{side} {part}": ids for side, ids in by_side.items()}
+                out.append({"topic": f"Injured {part}: left or right?",
+                            "text": f"The evidence disagrees about which {part} was injured: {_cite(found)}.",
+                            "sources": sorted(left | right)})
+
+    plates: dict[str, list[str]] = {}
+    for ev in evidence:
+        for p in PLATE_RE.findall(ev.text):
+            plates.setdefault(p, []).append(ev.id)
+    if len(plates) > 1:
+        out.append({"topic": "Licence plate",
+                    "text": f"More than one plate number appears: {_cite(plates)}. "
+                            "Check which vehicle each one belongs to.",
+                    "sources": sorted({i for ids in plates.values() for i in ids})})
+    return out
+
+
+# --- How to get missing evidence ------------------------------------------------------------
+# Practical, general steps for each checklist item. Information, not legal advice, and worded
+# for a stressed person. Keys match the labels in CHECKLIST / DEFAULT_CHECKLIST.
+
+EVIDENCE_TIPS = {
+    "Police / collision report": "Ask the police department that came to the scene for a copy. "
+        "Many offer online requests; the report number speeds it up.",
+    "Photos of the scene or vehicles": "Photograph the vehicles before repairs, and the place it "
+        "happened if it is safe to go back.",
+    "Photos of the hazard": "If it is safe, photograph the spot again and anything that is still "
+        "there, like a missing warning sign.",
+    "Photos": "Photograph your injuries every few days as they change, and anything that was "
+        "damaged.",
+    "Medical records": "Ask each clinic or hospital for your records and an itemized bill. "
+        "You have a right to a copy of your own records.",
+    "Written repair estimate": "Ask the body shop for a written, itemized estimate, even if you "
+        "haven't decided on repairs.",
+    "Other driver's insurance details": "The police report often lists the other driver's "
+        "insurer. Keep every letter they send.",
+    "Witness contact information": "Write down anyone who saw it. Nearby businesses may have "
+        "cameras, but footage is often erased within days, so ask soon.",
+    "Proof of lost wages (pay stubs / employer letter)": "Keep your pay stubs, or ask your "
+        "employer for a short letter listing the days you missed and your pay.",
+    "Incident report from the property": "Ask the store or property manager in writing for a "
+        "copy. Write down who you asked and when, even if they say no.",
+}
+
+
+def how_to_get(label: str) -> str | None:
+    """General steps for collecting one missing item, or None if we have no tip for it."""
+    return EVIDENCE_TIPS.get(label)
+
+
 def build_brief(evidence: list[Evidence]) -> CaseBrief:
     case_type = detect_case_type(evidence)
     side = detect_side(evidence)
@@ -232,6 +421,8 @@ def build_brief(evidence: list[Evidence]) -> CaseBrief:
         missing_evidence=missing_evidence(evidence, case_type),
         deadlines=deadlines(evidence, case_type),
         warnings=warnings(evidence),
+        alerts=insurer_alerts(evidence),
+        contradictions=contradictions(evidence),
     )
     when = incident_date(evidence)
     brief.summary = (
