@@ -7,9 +7,9 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-23 20:40 (commit `91c5e42`) |
+| Last updated | 2026-10-23 20:47 (commit `c73072a`) |
 | Tests | passing (284 passed, 38 xfailed) |
-| Commits | 37 |
+| Commits | 40 |
 | Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Shahzod Bakhriev |
 <!-- AUTO:STATUS:END -->
 
@@ -126,6 +126,7 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 
 | Date | Author | Change |
 |---|---|---|
+| 2026-10-23 | Shahzod Bakhriev | legal_rules_update |
 | 2026-10-23 | Shahzod Bakhriev | test_bob_coverage |
 | 2026-10-23 | Aktanbekov | ai: check Granite facts with Granite Guardian, add mic recording |
 | 2026-10-23 | Shahzod Bakhriev | Bob_Commit2_MoreTests |
@@ -136,6 +137,4 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 | 2026-10-24 | Claude | ui: show alerts, contradictions, tips and the privacy receipt |
 | 2026-10-24 | Claude | ingest: read photo time and GPS, strip photo metadata |
 | 2026-10-24 | Claude | rules: insurer alerts, contradiction check, tips for missing evidence |
-| 2026-10-24 | Claude | ai: fence evidence as data and flag injected instructions |
-| 2026-10-24 | Claude | safety: catch hidden AI instructions, add privacy receipt and posting gate |
 <!-- AUTO:CHANGELOG:END -->
