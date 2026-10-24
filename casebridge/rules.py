@@ -475,11 +475,19 @@ def how_to_get(label: str) -> str | None:
     return EVIDENCE_TIPS.get(label)
 
 
+def _count(n: int, noun: str) -> str:
+    """"1 item", "3 items"."""
+    return f"{n} {noun}{'' if n == 1 else 's'}"
+
+
 def build_brief(evidence: list[Evidence]) -> CaseBrief:
     case_type = detect_case_type(evidence)
     side = detect_side(evidence)
     county = detect_county(evidence)
-    timeline = collect(evidence, lambda s: bool(DATE_RE.search(s) or TIME_RE.search(s)))
+    # A bare form field like "Time: 08:53." says nothing on its own, so a time without a date
+    # only goes on the timeline when the sentence also says what happened.
+    timeline = collect(evidence, lambda s: bool(DATE_RE.search(s)
+                                                or (TIME_RE.search(s) and len(s.split()) >= 4)))
     timeline.sort(key=lambda f: (parse_date(f.text) or date.max, f.text))
     brief = CaseBrief(
         case_type=case_type,
@@ -498,11 +506,13 @@ def build_brief(evidence: list[Evidence]) -> CaseBrief:
         contradictions=contradictions(evidence),
     )
     when = incident_date(evidence)
+    missing = len(brief.missing_evidence)
     brief.summary = (
         f"Potential {side} matter: {case_type.replace('_', ' ')}"
-        f"{' on ' + when.strftime('%B %d, %Y') if when else ''}"
+        f"{f' on {when:%B} {when.day}, {when.year}' if when else ''}"
         f"{' in ' + county + ' County' if county else ''}. "
-        f"{len(evidence)} pieces of evidence, {len(brief.injuries)} injury-related facts, "
-        f"{len(brief.missing_evidence)} items a lawyer will likely ask for are missing."
+        f"{_count(len(evidence), 'piece')} of evidence, "
+        f"{_count(len(brief.injuries), 'injury-related fact')}, "
+        f"{_count(missing, 'item')} a lawyer will likely ask for {'is' if missing == 1 else 'are'} missing."
     )
     return brief

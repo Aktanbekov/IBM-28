@@ -82,3 +82,18 @@ def test_leap_day_incident_does_not_crash():
     d = _deadline_dates("Date: February 29, 2028. I was rear-ended. I have neck pain.")
     assert d["Cal. Code Civ. Proc. § 335.1"] == "2030-02-28"
     assert d["Cal. Code Civ. Proc. § 338"] == "2031-02-28"
+
+
+def test_summary_counts_read_naturally():
+    s = rules.build_brief(load_demo_case("bao")).summary
+    assert "1 item a lawyer will likely ask for is missing" in s
+    assert "October 14, 2026" in s
+    maria = rules.build_brief(load_demo_case("maria")).summary
+    assert "October 2, 2026" in maria and "3 items a lawyer will likely ask for are missing" in maria
+
+
+def test_bare_form_time_is_not_a_timeline_row():
+    texts = [f.text for f in rules.build_brief(load_demo_case("bao")).timeline]
+    assert "Time: 08:53." not in texts
+    rosa = [f.text for f in rules.build_brief(load_demo_case("rosa")).timeline]
+    assert any("10:30" in t for t in rosa)   # a time inside a real sentence stays
