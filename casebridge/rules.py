@@ -77,8 +77,11 @@ CONTACT_RE = re.compile(r"\(?\d{3}\)?[\s.-]?\d{3}-\d{4}|[\w.]+@[\w.]+")
 
 
 def sentences(ev: Evidence) -> list[str]:
-    # Don't split after honorifics like "Ms." or "Dr.".
-    parts = re.split(r"(?<!\bMs\.)(?<!\bMr\.)(?<!\bMrs\.)(?<!\bDr\.)(?<!\bSra\.)(?<!\bSr\.)(?<=[.!?])\s+",
+    # Don't split after honorifics like "Ms." or "Dr.", or after a street abbreviation that the
+    # sentence carries on from ("Oak St. near the park", "Main Ave. in Fremont").
+    parts = re.split(r"(?<!\bMs\.)(?<!\bMr\.)(?<!\bMrs\.)(?<!\bDr\.)(?<!\bSra\.)(?<!\bSr\.)(?<=[.!?])\s+"
+                     r"(?!(?<=\b(?:St|Rd|Ln|Ct)\.\s)[a-z])(?!(?<=\b(?:Ave|Apt)\.\s)[a-z])"
+                     r"(?!(?<=\bBlvd\.\s)[a-z])",
                      ev.text)
     return [s.strip() for s in parts if s.strip()]
 
@@ -169,7 +172,16 @@ def incident_date(evidence: list[Evidence]) -> date | None:
     return None
 
 
+NUMBER_RE = re.compile(r"\d[\d,.:]*\d|\d")
+
+
 def _similar(a: str, b: str) -> bool:
+    """Near-duplicate sentences (more than half their words shared) are merged into one fact.
+    Never when both carry numbers that differ: "$2,500 by Nov 28" and "$1,500 within 10 days"
+    are two different offers, even if the wording around them is the same."""
+    na, nb = set(NUMBER_RE.findall(a)), set(NUMBER_RE.findall(b))
+    if na and nb and na != nb:
+        return False
     wa, wb = set(re.findall(r"\w+", a.lower())), set(re.findall(r"\w+", b.lower()))
     return bool(wa and wb) and len(wa & wb) / len(wa | wb) > 0.5
 
@@ -218,6 +230,14 @@ def missing_evidence(evidence: list[Evidence], case_type: str) -> list[str]:
         if not ok:
             missing.append(label)
     return missing
+
+
+def readiness(evidence: list[Evidence], case_type: str) -> tuple[int, int]:
+    """(items covered, items on the checklist) for "what a lawyer will likely ask for".
+    It measures how complete the evidence is, never how strong or valuable the case is."""
+    items = [label for label, _, _ in CHECKLIST.get(case_type, DEFAULT_CHECKLIST)
+             if not (label == "Written repair estimate" and on_foot(evidence))]
+    return len(items) - len(missing_evidence(evidence, case_type)), len(items)
 
 
 def deadlines(evidence: list[Evidence], case_type: str) -> list[dict]:
@@ -475,11 +495,19 @@ def how_to_get(label: str) -> str | None:
     return EVIDENCE_TIPS.get(label)
 
 
+def _count(n: int, noun: str) -> str:
+    """"1 item", "3 items"."""
+    return f"{n} {noun}{'' if n == 1 else 's'}"
+
+
 def build_brief(evidence: list[Evidence]) -> CaseBrief:
     case_type = detect_case_type(evidence)
     side = detect_side(evidence)
     county = detect_county(evidence)
-    timeline = collect(evidence, lambda s: bool(DATE_RE.search(s) or TIME_RE.search(s)))
+    # A bare form field like "Time: 08:53." says nothing on its own, so a time without a date
+    # only goes on the timeline when the sentence also says what happened.
+    timeline = collect(evidence, lambda s: bool(DATE_RE.search(s)
+                                                or (TIME_RE.search(s) and len(s.split()) >= 4)))
     timeline.sort(key=lambda f: (parse_date(f.text) or date.max, f.text))
     brief = CaseBrief(
         case_type=case_type,
@@ -498,11 +526,13 @@ def build_brief(evidence: list[Evidence]) -> CaseBrief:
         contradictions=contradictions(evidence),
     )
     when = incident_date(evidence)
+    missing = len(brief.missing_evidence)
     brief.summary = (
         f"Potential {side} matter: {case_type.replace('_', ' ')}"
-        f"{' on ' + when.strftime('%B %d, %Y') if when else ''}"
+        f"{f' on {when:%B} {when.day}, {when.year}' if when else ''}"
         f"{' in ' + county + ' County' if county else ''}. "
-        f"{len(evidence)} pieces of evidence, {len(brief.injuries)} injury-related facts, "
-        f"{len(brief.missing_evidence)} items a lawyer will likely ask for are missing."
+        f"{_count(len(evidence), 'piece')} of evidence, "
+        f"{_count(len(brief.injuries), 'injury-related fact')}, "
+        f"{_count(missing, 'item')} a lawyer will likely ask for {'is' if missing == 1 else 'are'} missing."
     )
     return brief

@@ -178,7 +178,9 @@ PII_PATTERNS = [  # (regex, replacement); order matters: specific before generic
     (re.compile(rf"(?<![\d.]){_GPS_NUM}\s*[,;]\s*{_GPS_NUM}\b"), "[LOCATION]"),
     (re.compile(rf"{_DMS}[NS]\s*,?\s*{_DMS}[EW]\b"), "[LOCATION]"),
     # Email, including "name @ host", the full-width ＠ and "name(at)host".
-    (re.compile(r"\b[\w.+-]+\s*(?:@|＠|\(at\)|\[at\])\s*[\w-]+(?:\.[\w-]+)+\b", re.I), "[EMAIL]"),
+    # Starts only where a run of email characters starts (not at every \b inside it): with \b,
+    # a long "word-word-word-..." with no @ backtracked from every position and took seconds.
+    (re.compile(r"(?<![\w.+-])[\w.+-]+\s*(?:@|＠|\(at\)|\[at\])\s*[\w-]+(?:\.[\w-]+)+\b", re.I), "[EMAIL]"),
     # Dates of birth after a label, in many formats, English and Spanish.
     (re.compile(rf"\b((?i:DOB|D\.O\.B\.?|date of birth|born(?: on| in)?|fecha de nacimiento|"
                 rf"nacid[oa] (?:el|en)))\s*[:\-]?\s*{_DATE}\b"), r"\1 [REDACTED]"),
@@ -234,7 +236,7 @@ ROLE_PATTERNS = [
 LOWER_INTRO_RE = re.compile(r"(?i:my name is|me llamo|mi nombre es|patient:|nombre:)\s+"
                             rf"([{_LO}'’-]+(?:\s[{_LO}'’-]+){{0,2}})")
 INTRO_STOP = {"and", "y", "i", "im", "my", "from", "de", "del", "la", "el", "is", "es", "but", "pero",
-              "so", "and", "the", "a", "was", "fui", "estaba", "soy", "am", "me", "mi", "tengo"}
+              "so", "the", "a", "was", "fui", "estaba", "soy", "am", "me", "mi", "tengo"}
 # Names that are also everyday words: replaced only when capitalized, to keep the brief readable.
 COMMON_WORDS = {"will", "mark", "grant", "bill", "may", "june", "april", "rose", "frank", "art", "hope",
                 "joy", "faith", "pat", "sue", "dawn", "rob", "ray", "guy", "jack", "chase", "page",
@@ -333,12 +335,22 @@ def _nicknames(first: str) -> list[str]:
     return [stem + end for end in ("ie", "y", "ita", "ito", "i")]
 
 
-def redact(text: str, names: dict[str, str]) -> str:
+def redact(text: str, names: dict[str, str], swaps: list[tuple[str, str]] | None = None) -> str:
+    """Replace personal details with placeholders. Pass a list as swaps to also get every
+    (original, placeholder) pair in order, e.g. for the app's client-to-lawyer view animation."""
+    def sub(rx: re.Pattern, token: str, text: str) -> str:
+        def one(m: re.Match) -> str:
+            new = m.expand(token)
+            if swaps is not None:
+                swaps.append((m.group(0), new))
+            return new
+        return rx.sub(one, text)
+
     text = ZERO_WIDTH_RE.sub("", text)   # "Ma\u200bria" must not slip past the name match
     for rx, token in PII_PATTERNS:
-        text = rx.sub(token, text)
+        text = sub(rx, token, text)
     for name in sorted(names, key=len, reverse=True):
-        text = _name_re(name).sub(names[name], text)
+        text = sub(_name_re(name), names[name], text)
     return re.sub(r"(\[[A-Z #]+\])(?:\s+\1)+", r"\1", text)   # "[CLIENT] [CLIENT]" -> "[CLIENT]"
 
 

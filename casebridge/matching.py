@@ -2,14 +2,24 @@
 then an explainable fit score. No case 'value' is ever computed or shown."""
 from __future__ import annotations
 
+import copy
 import json
+from functools import lru_cache
 from pathlib import Path
 
 LAWYERS_FILE = Path(__file__).resolve().parent.parent / "data" / "lawyers.json"
 
 
+@lru_cache(maxsize=1)
+def _lawyers_from_disk() -> tuple[dict, ...]:
+    # utf-8 explicitly: Windows would otherwise read "español" in the reviews as "espaÃ±ol".
+    return tuple(json.loads(LAWYERS_FILE.read_text(encoding="utf-8")))
+
+
 def load_lawyers() -> list[dict]:
-    return json.loads(LAWYERS_FILE.read_text())
+    """The lawyer directory, read from disk once. Each call gets its own copy, so a caller
+    that edits a profile can't change what the next caller sees."""
+    return copy.deepcopy(list(_lawyers_from_disk()))
 
 
 def speaks_with(client_languages: list[str], lawyer_languages: list[str]) -> bool:
