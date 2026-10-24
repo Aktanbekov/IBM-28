@@ -220,6 +220,8 @@ AGENTS.md §2 lists seven product rules. The table below shows where each is enf
 
 **Suggested fix:** Add a secondary semantic check alongside the regex. Granite Guardian (`ibm/granite-guardian-3-2-2b`) is already in IBM's model catalogue and is purpose-built for harm detection; calling it on `summary` and each `Fact.text` before `apply_guardrails` returns would catch paraphrases the regex misses. Alternatively, expand `ADVICE_PATTERNS` with the Spanish and question-form patterns identified in the edge-case test file.
 
+**Status (Oct 24):** Fixed for every example in `tests/test_bob_edge_cases.py`; those tests are no longer xfail. Granite Guardian is not wired in yet.
+
 ---
 
 ### Risk 2 — Name-detection gaps leave PII on the lawyer board
@@ -234,6 +236,8 @@ AGENTS.md §2 lists seven product rules. The table below shows where each is enf
 
 **Suggested fix:** (a) Extend `LOWER_INTRO_RE` (already in `safety.py`) to catch all-lowercase name introductions from the role patterns, not just `my name is`. (b) Update `_WORD` to allow an uppercase letter after `-` or `'` within a token (the fix is a one-line regex change in `_WORD`). Both changes need corresponding tests added.
 
+**Status (Oct 24):** Fixed. `_WORD` handles `O'Brien` and `Smith-Jones`, lowercase introductions are caught, and the 30 attacks in `tests/test_bob_redteam.py` (OCR digits, nicknames, accents, split numbers) all pass.
+
 ---
 
 ### Risk 3 — Prompt injection via evidence reaches Granite
@@ -243,6 +247,8 @@ AGENTS.md §2 lists seven product rules. The table below shows where each is enf
 **Impact:** Granite could be steered to produce advice, leak names, or output content that passes the regex guardrail but harms the client. This violates Rules 1 and 5.
 
 **Suggested fix:** Three complementary layers: (1) the `<evidence>` fencing already in `wrap_evidence` is the primary structural defence — maintain it strictly. (2) Run Granite Guardian's prompt-injection detection on each evidence item before it is sent to the main model. (3) Apply `is_advice` and `find_leaks` to Granite's raw output before merging it back, rather than only after. Currently `apply_guardrails` runs after the merge; the raw LLM string is never checked independently.
+
+**Status (Oct 24):** Partly fixed. `has_injection` now scans a normalized copy (zero-width characters removed, look-alike letters mapped, accents dropped) and covers Vietnamese; all of `tests/test_bob_injection.py` passes. Granite Guardian and a check on Granite's raw output are still open.
 
 ---
 
@@ -254,6 +260,8 @@ AGENTS.md §2 lists seven product rules. The table below shows where each is enf
 
 **Suggested fix:** (a) Use `\b` word boundaries in `CASE_KEYWORDS` matching (currently `text.count(w)` has no boundary). (b) Require a minimum score of 2 for a confident classification, falling back to `"other"` if the best score is 1. (c) Add a test for the mixed-keyword case.
 
+**Status (Oct 24):** Fix (a) done: keywords match as whole words, so "car" no longer matches "urgent care". The minimum score (b) was not added.
+
 ---
 
 ### Risk 5 — `ingest.load_demo_case` encoding and the offline demo
@@ -263,3 +271,5 @@ AGENTS.md §2 lists seven product rules. The table below shows where each is enf
 **Impact:** Accented names in demo data survive redaction and appear on the lawyer board, violating Rule 5. The `rosa` demo case is the live demo path for a Spanish-speaking client.
 
 **Suggested fix:** (a) Add a CI check (or a `pytest` fixture) that reads every file in `data/` and asserts it decodes cleanly as UTF-8. (b) Document in AGENTS.md §6 that all `data/` files must be saved as UTF-8. (c) Consider using `pathlib.Path.read_bytes()` + `.decode("utf-8")` consistently rather than relying on the `encoding` keyword default.
+
+**Status (Oct 24):** Fixed. `load_demo_case` reads UTF-8, and `tests/test_bao_fixes.py` checks that every file in `data/` decodes as UTF-8.
