@@ -125,35 +125,54 @@ def wrap_evidence(evidence_id: str, kind: str, title: str, text: str) -> str:
 _UP, _LO = "A-ZÀ-ÖØ-Þ", "a-zß-öø-ÿ"
 _WORD = rf"[{_UP}](?:['’][{_UP}])?[{_LO}]+(?:[-'’][{_UP}]?[{_LO}]+)*"   # also O'Brien, Smith-Jones
 NAME = rf"({_WORD}(?:\s{_WORD}){{0,2}})"          # "Maria Lopez", "Rosa María Martínez"
-_DATE = (r"(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2}|"
-         r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
-         r"\s+\d{1,2},?\s+\d{4})")
+_MONTHS = r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
+_DATE = (r"(?:\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{4}-\d{2}-\d{2}|"           # 03/08/1984, 08.03.1984
+         rf"{_MONTHS}\s+\d{{1,2}},?\s+\d{{4}}|{_MONTHS},?\s+\d{{4}}|"         # March 8, 1984 / March 1984
+         r"(?:19|20)\d{2})")                                                   # 1984 (after a birth label)
+_NUM_WORDS = (r"zero|oh|one|two|three|four|five|six|seven|eight|nine|"
+              r"cero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve")
+_GPS_NUM = r"-?\d{1,3}\.\d{3,}"
+_DMS = r"\d{1,3}°\s*\d{1,2}[′']\s*\d{1,2}(?:\.\d+)?[″\"]?\s*"                 # 37°19′22″
 
 PII_PATTERNS = [  # (regex, replacement); order matters: specific before generic
-    (re.compile(r"-?\b\d{1,3}\.\d{3,},\s*-?\d{1,3}\.\d{3,}\b"), "[LOCATION]"),   # GPS "37.3230, -121.9480"
-    (re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.]+\b"), "[EMAIL]"),
-    (re.compile(rf"\b(DOB|D\.O\.B\.|[Dd]ate of birth|[Bb]orn(?: on)?|[Ff]echa de nacimiento|"
-                rf"[Nn]acid[oa] el)\s*[:\-]?\s*{_DATE}"), r"\1 [REDACTED]"),
-    (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN]"),
+    # GPS: decimal "37.3230, -121.9480" (comma or semicolon) and degrees "37°19′22″N 121°57′17″W".
+    (re.compile(rf"(?<![\d.]){_GPS_NUM}\s*[,;]\s*{_GPS_NUM}\b"), "[LOCATION]"),
+    (re.compile(rf"{_DMS}[NS]\s*,?\s*{_DMS}[EW]\b"), "[LOCATION]"),
+    # Email, including "name @ host", the full-width ＠ and "name(at)host".
+    (re.compile(r"\b[\w.+-]+\s*(?:@|＠|\(at\)|\[at\])\s*[\w-]+(?:\.[\w-]+)+\b", re.I), "[EMAIL]"),
+    # Dates of birth after a label, in many formats, English and Spanish.
+    (re.compile(rf"\b((?i:DOB|D\.O\.B\.?|date of birth|born(?: on| in)?|fecha de nacimiento|"
+                rf"nacid[oa] (?:el|en)))\s*[:\-]?\s*{_DATE}\b"), r"\1 [REDACTED]"),
+    # SSN with dashes, spaces, dots or nothing between the groups.
+    (re.compile(r"\b\d{3}([\s.-]?)\d{2}\1\d{4}\b"), "[SSN]"),
     (re.compile(r"(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\b\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b"), "[PHONE]"),
     (re.compile(r"\b\d{3}\s*[.-]\s*\d{4}\b"), "[PHONE]"),                 # 555-0142, 555 - 0142
-    (re.compile(r"\b(?:(?:zero|oh|one|two|three|four|five|six|seven|eight|nine|cero|uno|dos|tres|"
-                r"cuatro|cinco|seis|siete|ocho|nueve)[\s,-]+){6,}"
-                r"(?:zero|oh|one|two|three|four|five|six|seven|eight|nine|cero|uno|dos|tres|cuatro|"
-                r"cinco|seis|siete|ocho|nueve)\b", re.I), "[PHONE]"),          # spelled-out digits
-    (re.compile(r"\b[A-HJ-NPR-Z0-9]{17}\b"), "[VIN]"),
-    (re.compile(r"\b\d[A-Z]{3}\d{3}\b"), "[PLATE]"),                      # California plate
-    (re.compile(r"\b([Pp]late|[Pp]laca|[Ll]icense plate)(\s*(?:no\.?|number|#))?\s*[:#]?\s*[A-Z0-9-]{2,8}\b"),
+    (re.compile(rf"\b(?:(?:{_NUM_WORDS})[\s,-]+){{6,}}(?:{_NUM_WORDS})\b", re.I), "[PHONE]"),  # spelled out
+    # Digits and number words mixed in one token: "four0eight".
+    (re.compile(rf"\b(?=\w*\d)(?=\w*[a-z])(?:(?:{_NUM_WORDS})|\d)+\b", re.I), "[PHONE]"),
+    # VIN: 17 characters with both letters and digits, any case.
+    (re.compile(r"\b(?=[A-Za-z0-9]{17}\b)(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])"
+                r"[A-HJ-NPR-Za-hj-npr-z0-9]{17}\b"), "[VIN]"),
+    (re.compile(r"\b\d[A-Za-z]{3}\d{3}\b"), "[PLATE]"),                   # California plate, any case
+    (re.compile(r"\b((?i:plate|placa|license plate))(\s*(?i:no\.?|number|#))?\s*[:#]?\s*[A-Za-z0-9-]{2,8}\b"),
      r"\1 [PLATE]"),
-    (re.compile(r"\b[A-Z]{2}-\d{2}-\d{4,}\b"), "[REPORT #]"),
+    (re.compile(r"\b[A-Za-z]{2}-\d{2}-\d{4,}\b"), "[REPORT #]"),
     (re.compile(r"\b((?i:policy|claim|member|account|MRN|medical record|driver'?s license|DL|report|"
-                r"incident|reference|ref)(?:\s*(?i:no\.?|number|#))?)\s*[:#]?\s*(?=[A-Z0-9-]*\d)[A-Z0-9][A-Z0-9-]{3,}\b"),
-     r"\1 [ID]"),
+                r"incident|reference|ref)(?:\s*(?i:no\.?|number|#))?)\s*[:#]?\s*"
+                r"(?=[A-Za-z0-9-]*\d)[A-Za-z0-9][A-Za-z0-9-]{3,}\b"), r"\1 [ID]"),
+    # Prefixed IDs written on their own, lowercase too: "hc-55190".
+    (re.compile(r"\b[A-Za-z]{2,3}-\d{4,}\b"), "[ID]"),
     (re.compile(r"\b\d{1,6}\s+(?:[NSEW]\.?\s+)?[A-Z][a-z]+(?:\s[A-Z][a-z]+)*\s"
                 r"(?:St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Ln|Lane|Way|Ct|Court|Blvd|Boulevard|Pl|Place|"
                 r"Ter|Terrace|Pkwy|Parkway|Hwy|Highway|Cir|Circle)\b\.?"
                 r"(?:,?\s*(?:Apt|Apartment|Unit|Suite|Ste|#)\.?\s*\w+)?"), "[ADDRESS]"),
-    (re.compile(r"\b(?:Apt|Apartment|Unit)\.?\s*#?\s*\d+\w?\b"), "[ADDRESS]"),
+    # House number + street name with no suffix, before a city: "4120 Peralta, Fremont". Not years.
+    (re.compile(r"\b(?!(?:19|20)\d{2}\b)\d{2,6}\s+[A-Z][a-z]+(?:\s[A-Z][a-z]+)?(?=,\s*[A-Z][a-z]+)"),
+     "[ADDRESS]"),
+    (re.compile(r"\bP\.?\s?O\.?\s*Box\s+\d+\b", re.I), "[ADDRESS]"),
+    # A bare house number right before a unit: "4120, apartment 12".
+    (re.compile(r"\b\d{2,6}(?=,?\s*(?i:apt|apartment|unit|suite|#))"), "[ADDRESS]"),
+    (re.compile(r"\b(?:Apt|Apartment|Unit)\.?\s*#?\s*\d+\w?\b", re.I), "[ADDRESS]"),
     (re.compile(r"\b(CA|California)\s+\d{5}(?:-\d{4})?\b"), r"\1 [ZIP]"),
 ]
 
@@ -166,7 +185,7 @@ ROLE_PATTERNS = [
     ("[CLIENT]", CLIENT_NAME_PATTERNS),
     ("[OTHER PARTY]", [rf"driver,? (?:his|her) name is {NAME}", rf"Vehicle 2:[^.]*?driver {NAME}",
                        rf"our insured {NAME}", rf"(?:owner|defendant):?\s+{NAME}"]),
-    ("[ADJUSTER]", [rf"[Aa]djuster:?\s+{NAME}", rf"{NAME},? (?:a |the |your )?(?:claims )?adjuster"]),
+    ("[ADJUSTER]", [rf"[Aa]djuster:?\s+{NAME}", rf"{NAME}, (?:a |the |your )?(?:claims )?adjuster"]),
     ("[PERSON]", [rf"(?i:witness|manager|employee|officer|nurse|supervisor|clerk|cashier|gerente|"
                   rf"testigo)(?: named|:|,)? {NAME}",
                   rf"\b(?:Dr|Mr|Ms|Mrs|Sr|Sra|Srta)\.?\s+{NAME}", rf"(?:named|called|llamad[oa]) {NAME}", rf"[Tt]his is {NAME}",
@@ -185,7 +204,8 @@ COMMON_WORDS = {"will", "mark", "grant", "bill", "may", "june", "april", "rose",
 # Capitalized words the name patterns can swallow but which are never names.
 NOT_NAMES = {"I", "The", "And", "But", "So", "My", "He", "She", "They", "We", "His", "Her", "Our",
              "Okay", "Yes", "No", "Not", "Very", "Really", "Just", "Sorry", "Scared", "Fine", "Here",
-             "Driver", "Vehicle", "Police", "Officer", "Store", "Manager", "Insurance", "Doctor", "Dr"}
+             "Driver", "Vehicle", "Police", "Officer", "Store", "Manager", "Insurance", "Doctor", "Dr",
+             "Contact", "Call", "Please", "Hi", "Hello", "Dear", "Thanks", "Thank", "Regards"}
 
 
 def _plain(s: str) -> str:
@@ -219,13 +239,36 @@ def find_names(texts: list[str]) -> dict[str, str]:
                 names.setdefault(part, role)
     for name, role in list(names.items()):
         names.setdefault(_plain(name), role)
+    # Nicknames of first names ("Rosie" for Rosa). Over-hiding is the safe direction here.
+    for full, role in list(names.items()):
+        if " " in full:
+            for nick in _nicknames(_plain(full.split()[0])):
+                if nick.lower() not in COMMON_WORDS:
+                    names.setdefault(nick, role)
     return names
 
 
+# Scans and photos of documents swap letters for look-alike digits: "Mar1a L0pez".
+LOOKALIKES = {"o": "o0", "i": "i1l", "l": "l1i", "a": "a4@", "e": "e3", "s": "s5$", "b": "b8", "g": "g9", "t": "t7"}
+
+
 def _name_re(name: str) -> re.Pattern:
-    """Whole-name match, any case ("rosa", "ROSA"), except names that are everyday words."""
-    flags = 0 if name.lower() in COMMON_WORDS else re.I
-    return re.compile(rf"(?<![\w\[]){re.escape(name)}(?![\w\]])", flags)
+    """Whole-name match, any case ("rosa", "ROSA") and with look-alike digits ("R0sa"),
+    except names that are everyday words, which only match exactly as written."""
+    if name.lower() in COMMON_WORDS:
+        return re.compile(rf"(?<![\w\[]){re.escape(name)}(?![\w\]])")
+    body = "".join(f"[{re.escape(LOOKALIKES[c])}]" if c in LOOKALIKES else re.escape(c)
+                   for c in name.lower())
+    return re.compile(rf"(?<![\w\[]){body}(?![\w\]])", re.I)
+
+
+def _nicknames(first: str) -> list[str]:
+    """Common pet forms of a first name: Rosa -> Rosie, Rosita, Rosy. Only for names of 4+
+    letters ending in a vowel, so short names don't turn into everyday words."""
+    if len(first) < 4 or first[-1].lower() not in "aeiou":
+        return []
+    stem = first[:-1]
+    return [stem + end for end in ("ie", "y", "ita", "ito", "i")]
 
 
 def redact(text: str, names: dict[str, str]) -> str:
