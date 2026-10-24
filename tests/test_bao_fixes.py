@@ -64,3 +64,21 @@ def test_county_vehicle_is_not_a_county_name():
     # Used to return "A". Now it falls through to the city lookup.
     assert _county("I was hit by a county vehicle in Oakland.") == "Alameda"
     assert _county("I was hit by a county vehicle.") is None
+
+
+def _deadline_dates(text):
+    ev = [Evidence(id="E1", kind="document", title="Police report", text=text)]
+    return {d["basis"]: d["date"] for d in rules.deadlines(ev, "auto_accident")}
+
+
+def test_month_end_incident_gets_the_last_day_of_the_month():
+    # A city bus makes the 6-month government claim apply. There is no February 31.
+    d = _deadline_dates("Date: August 31, 2026. A city bus hit my car. I have neck pain.")
+    assert d["Cal. Gov. Code § 911.2"] == "2027-02-28"
+    assert d["Cal. Code Civ. Proc. § 335.1"] == "2028-08-31"
+
+
+def test_leap_day_incident_does_not_crash():
+    d = _deadline_dates("Date: February 29, 2028. I was rear-ended. I have neck pain.")
+    assert d["Cal. Code Civ. Proc. § 335.1"] == "2030-02-28"
+    assert d["Cal. Code Civ. Proc. § 338"] == "2031-02-28"

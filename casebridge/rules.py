@@ -2,6 +2,7 @@
 deadlines and missing-evidence checks even when an LLM writes the narrative."""
 from __future__ import annotations
 
+import calendar
 import re
 from datetime import date, datetime
 
@@ -228,7 +229,12 @@ def deadlines(evidence: list[Evidence], case_type: str) -> list[dict]:
         def plus(years=0, months=0):
             m = start.month - 1 + months
             y = start.year + years + m // 12
-            return start.replace(year=y, month=m % 12 + 1).isoformat()
+            month = m % 12 + 1
+            # Aug 31 + 6 months has no Feb 31, and Feb 29 + 2 years has no Feb 29: use the last
+            # day of that month. That is the earlier of the two possible dates, so it never
+            # shows a deadline later than the real one.
+            day = min(start.day, calendar.monthrange(y, month)[1])
+            return date(y, month, day).isoformat()
         out.append({"label": "General personal-injury filing deadline (CA, 2 years)",
                     "date": plus(years=2), "basis": "Cal. Code Civ. Proc. § 335.1"})
         if case_type == "auto_accident":
