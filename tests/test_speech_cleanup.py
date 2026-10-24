@@ -28,7 +28,7 @@ def test_only_noise_becomes_empty():
 
 
 def test_voice_evidence_is_cleaned(monkeypatch):
-    monkeypatch.setattr(ingest, "transcribe", lambda data, name: ("Uh, the damn truck hit me, hmm.", "English"))
+    monkeypatch.setattr(ingest, "transcribe", lambda data, name, language=None: ("Uh, the damn truck hit me, hmm.", "English"))
     ev = ingest.voice_evidence(b"", "memo.webm")
     assert ev.text == "The truck hit me."
     assert ev.title.endswith("(transcribed)")
@@ -36,7 +36,7 @@ def test_voice_evidence_is_cleaned(monkeypatch):
 
 def test_voice_placeholder_is_left_alone(monkeypatch):
     placeholder = "[Could not transcribe this audio (ValueError). Please type what it says.]"
-    monkeypatch.setattr(ingest, "transcribe", lambda data, name: (placeholder, None))
+    monkeypatch.setattr(ingest, "transcribe", lambda data, name, language=None: (placeholder, None))
     assert ingest.voice_evidence(b"", "memo.webm").text == placeholder
 
 
