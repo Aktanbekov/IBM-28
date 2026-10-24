@@ -79,7 +79,7 @@ INJECTION_PATTERNS = [
     # Role-play and jailbreak phrasing.
     r"\byou are (now|no longer) (an? |the |in )?(AI|assistant|chatbot|bot|model|lawyer|attorney|"
     r"legal advisor|\w+ mode|DAN)\b",
-    r"\b(act|behave) as (an?|the|my) (AI|assistant|lawyer|attorney|legal advisor)\b",
+    r"\b(act|behave) as (an?|the|my|your) (AI|assistant|lawyer|attorney|legal advisor)\b",
     r"\bpretend (to be|you are|you're)\b",
     r"\bjailbreak|\bdeveloper mode\b|\bDAN mode\b",
     # Text addressed to an AI rather than to a person.
@@ -88,16 +88,54 @@ INJECTION_PATTERNS = [
     r"\b(say|write|state|tell the (user|client|lawyer)|output|respond with)\b.{0,40}"
     r"\b(case is worth|will win|should (settle|sign|accept))",
     # Chat-template tokens and role tags that have no business in a letter.
-    r"<\|?(system|assistant|user|im_start|im_end)\|?>|\[/?INST\]|^\s*(system|assistant)\s*:",
+    r"<\|?(system|assistant|user|im_start|im_end)\|?>|\[\s*/?\s*INST\s*\]|^\s*(system|assistant)\s*:",
     # Spanish equivalents.
     r"\b(ignora|olvida|omite)\b.{0,40}\b(instrucciones|reglas)\b",
+    # Vietnamese equivalents, written without accents because _scan_text strips them first:
+    # "bỏ qua ... hướng dẫn" (skip the instructions), "đóng vai luật sư" (play the lawyer).
+    r"\b(bo qua|phot lo|quen)\b.{0,40}\b(huong dan|chi dan|chi thi|quy tac)\b",
+    r"\b(dong vai|gia vo la|gia lam)\b.{0,40}\b(luat su|tro ly|AI|chatbot)\b",
 ]
-INJECTION_RE = re.compile("|".join(f"(?:{p})" for p in INJECTION_PATTERNS), re.I | re.M)
+# re.S lets ".{0,40}" cross a line break, so "ignore\nall previous instructions" still matches.
+INJECTION_RE = re.compile("|".join(f"(?:{p})" for p in INJECTION_PATTERNS), re.I | re.M | re.S)
+
+# Invisible characters that can be slipped inside a word ("i​gnore") to dodge the regex.
+ZERO_WIDTH_RE = re.compile("[­᠎​-‏⁠-⁤﻿]")
+
+# Cyrillic and Greek letters that look identical to Latin ones ("іgnore" with a Cyrillic і).
+# NFKD doesn't touch these, so they are mapped by hand. Only used for scanning, never shown.
+CONFUSABLES = str.maketrans({
+    "а": "a", "в": "b", "е": "e", "ё": "e", "к": "k", "м": "m", "н": "h", "о": "o", "р": "p",
+    "с": "c", "т": "t", "у": "y", "х": "x", "і": "i", "ї": "i", "ј": "j", "ѕ": "s", "ԁ": "d",
+    "ԛ": "q", "ԝ": "w", "ɡ": "g",
+    "А": "A", "В": "B", "Е": "E", "К": "K", "М": "M", "Н": "H", "О": "O", "Р": "P", "С": "C",
+    "Т": "T", "У": "Y", "Х": "X", "І": "I", "Ј": "J", "Ѕ": "S",
+    "α": "a", "ε": "e", "ι": "i", "κ": "k", "ν": "v", "ο": "o", "ρ": "p", "τ": "t", "υ": "u",
+    "χ": "x", "Α": "A", "Β": "B", "Ε": "E", "Ζ": "Z", "Η": "H", "Ι": "I", "Κ": "K", "Μ": "M",
+    "Ν": "N", "Ο": "O", "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X",
+    "đ": "d", "Đ": "D",   # Vietnamese d-bar has no NFKD decomposition
+})
+
+
+def _scan_text(text: str) -> str:
+    """The text as the injection check sees it: invisible characters removed, look-alike letters
+    turned into Latin ones, and accents dropped (NFKD), so "Bỏ qua" reads as "Bo qua".
+
+    Only the check uses this. The evidence the client and lawyer see is never altered.
+    """
+    text = ZERO_WIDTH_RE.sub("", text).translate(CONFUSABLES)
+    text = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in text if not unicodedata.combining(c))
+
+
+def has_injection(text: str) -> bool:
+    """True if the text looks like it is trying to give instructions to an AI."""
+    return bool(INJECTION_RE.search(_scan_text(text)))
 
 
 def injection_flags(evidence) -> list[str]:
     """Ids of evidence items that contain text trying to instruct an AI."""
-    return [e.id for e in evidence if INJECTION_RE.search(e.text)]
+    return [e.id for e in evidence if has_injection(e.text)]
 
 
 def injection_warnings(evidence) -> list[str]:
@@ -114,7 +152,7 @@ def wrap_evidence(evidence_id: str, kind: str, title: str, text: str) -> str:
     "break out" by writing </evidence> itself.
     """
     clean = re.sub(r"</?\s*evidence[^>]*>", "[tag removed]", text, flags=re.I)
-    flag = ' flagged="possible-instructions"' if INJECTION_RE.search(text) else ""
+    flag = ' flagged="possible-instructions"' if has_injection(text) else ""
     return f'<evidence id="{evidence_id}" kind="{kind}"{flag}>\n{title}\n{clean}\n</evidence>'
 
 
@@ -272,6 +310,7 @@ def _nicknames(first: str) -> list[str]:
 
 
 def redact(text: str, names: dict[str, str]) -> str:
+    text = ZERO_WIDTH_RE.sub("", text)   # "Ma\u200bria" must not slip past the name match
     for rx, token in PII_PATTERNS:
         text = rx.sub(token, text)
     for name in sorted(names, key=len, reverse=True):
@@ -281,7 +320,7 @@ def redact(text: str, names: dict[str, str]) -> str:
 
 def find_leaks(data, names: dict[str, str]) -> list[str]:
     """Final check on anything a lawyer will see: list every known name or PII pattern still present."""
-    blob = str(data)
+    blob = ZERO_WIDTH_RE.sub("", str(data))
     leaks = [n for n in names if _name_re(n).search(blob)]
     for rx, _ in PII_PATTERNS:
         leaks += [m.group(0) for m in rx.finditer(blob) if "[" not in m.group(0)]
