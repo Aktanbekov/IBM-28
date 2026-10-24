@@ -172,7 +172,16 @@ def incident_date(evidence: list[Evidence]) -> date | None:
     return None
 
 
+NUMBER_RE = re.compile(r"\d[\d,.:]*\d|\d")
+
+
 def _similar(a: str, b: str) -> bool:
+    """Near-duplicate sentences (more than half their words shared) are merged into one fact.
+    Never when both carry numbers that differ: "$2,500 by Nov 28" and "$1,500 within 10 days"
+    are two different offers, even if the wording around them is the same."""
+    na, nb = set(NUMBER_RE.findall(a)), set(NUMBER_RE.findall(b))
+    if na and nb and na != nb:
+        return False
     wa, wb = set(re.findall(r"\w+", a.lower())), set(re.findall(r"\w+", b.lower()))
     return bool(wa and wb) and len(wa & wb) / len(wa | wb) > 0.5
 

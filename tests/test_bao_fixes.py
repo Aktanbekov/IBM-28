@@ -115,3 +115,11 @@ def test_lawyer_directory_is_cached_but_each_caller_gets_a_copy():
     first[0]["name"] = "changed"
     assert matching.load_lawyers()[0]["name"] != "changed"
     assert any("español" in str(l) for l in matching.load_lawyers())   # read as UTF-8
+
+
+def test_offers_with_different_amounts_are_not_merged():
+    from casebridge.ingest import load_trick_letter, number
+    ev = number(load_demo_case("bao") + [load_trick_letter()])
+    damages = rules.build_brief(ev).damages
+    assert [f.sources for f in damages] == [["E5"], ["E6"]]
+    assert rules._similar("I hurt my neck on October 2.", "I hurt my neck on October 2!")
