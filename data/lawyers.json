@@ -347,5 +347,62 @@
   "review_snippets": [
    "Knows workers comp inside out."
   ]
+ },
+ {
+  "id": "L13",
+  "name": "Sofia Reyes",
+  "firm": "Reyes Premises & Injury",
+  "practice_areas": [
+   "premises",
+   "dog_bite"
+  ],
+  "sides": [
+   "plaintiff"
+  ],
+  "counties": [
+   "Alameda",
+   "Contra Costa"
+  ],
+  "languages": [
+   "English",
+   "Spanish"
+  ],
+  "rating": 4.7,
+  "reviews": 96,
+  "years": 9,
+  "fee_model": "Contingency (33%)",
+  "free_consultation": true,
+  "bio": "Represents people hurt in stores, parking lots and rental properties across the East Bay.",
+  "review_snippets": [
+   "Habló conmigo en español desde la primera llamada.",
+   "Clear about every step and every fee."
+  ]
+ },
+ {
+  "id": "L14",
+  "name": "Martin Kowalski",
+  "firm": "Kowalski Retail Defense",
+  "practice_areas": [
+   "premises"
+  ],
+  "sides": [
+   "defense"
+  ],
+  "counties": [
+   "Alameda",
+   "Contra Costa"
+  ],
+  "languages": [
+   "English"
+  ],
+  "rating": 4.4,
+  "reviews": 38,
+  "years": 17,
+  "fee_model": "Hourly",
+  "free_consultation": false,
+  "bio": "Defends store owners and property managers in slip-and-fall claims.",
+  "review_snippets": [
+   "Responsive and practical."
+  ]
  }
 ]

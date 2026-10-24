@@ -7,10 +7,10 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-23 17:44 (commit `d4c511d`) |
-| Tests | passing (9 passed) |
-| Commits | 3 |
-| Contributors | Aktai Aktanbekov, Aktanbekov |
+| Last updated | 2026-10-23 23:00 (commit `4642279`) |
+| Tests | passing (581 passed) |
+| Commits | 87 |
+| Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Shahzod Bakhriev |
 <!-- AUTO:STATUS:END -->
 
 ## The problem
@@ -42,7 +42,7 @@ actually handles their kind of case, while keeping the AI honest, private and fr
 ## Responsible AI by design
 | Risk | What we built |
 |---|---|
-| AI invents facts | Every fact must cite evidence. Uncited ones are removed, and the brief says how many. |
+| AI invents facts | Every fact must cite evidence; uncited ones are removed. Numbers must appear in the cited evidence. Granite Guardian checks each fact against its sources. |
 | A bot giving legal advice | A guardrail blocks outcome predictions, "you should sign or settle", and case valuations |
 | Sensitive data exposure | Names, phones, emails, date of birth, plates and report numbers are redacted until the client accepts a lawyer |
 | Lawyers skip "small" cases | No case-value score exists. The lawyer board is sorted by date only. |
@@ -61,8 +61,8 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Open http://localhost:8501, click **Load demo case (Maria)**, then **Build my case brief →**, and go
-through the pages in the sidebar.
+Open http://localhost:8501, click **Load demo case (Maria)**, then **Build my case brief**, then
+**Open my case brief**, and go through the steps in the sidebar.
 
 Run the tests:
 
@@ -75,13 +75,30 @@ The app works fully offline with a rule-based engine. To use IBM Granite:
 
 | Option | Setup |
 |---|---|
-| IBM watsonx.ai | `export WATSONX_APIKEY=... WATSONX_PROJECT_ID=...` (optional: `WATSONX_URL`, `WATSONX_MODEL`) |
-| Local Granite via Ollama | `ollama pull granite3.3 && ollama serve` |
+| IBM watsonx.ai | Copy `.env.example` to `.env` and fill in `WATSONX_APIKEY` and `WATSONX_PROJECT_ID`. The app picks the newest Granite chat model your region offers (today `ibm/granite-4-h-small`); `WATSONX_MODEL` overrides it. |
+| Granite Guardian (fact check) | `brew install ollama && ollama serve`, then `ollama pull granite3-guardian:2b`. Runs on your laptop. |
+| Local Granite via Ollama | `ollama pull granite3.3` |
 | Force a backend | `LLM_BACKEND=watsonx`, `ollama` or `rules` |
 
+Check your setup in one command: `python -m casebridge.llm`. It shows the backend and model, makes
+one real chat call, and runs the fact check on a supported and a made-up statement.
+
 The rule-based engine always computes the case type, side, county, deadlines and missing evidence.
-When Granite is connected, it writes the narrative sections, which still go through the citation
-and advice guardrails.
+When Granite is connected, it writes the narrative sections. Then every statement is checked:
+
+1. **Citations:** a statement with no evidence id is removed (all modes).
+2. **Numbers:** every number in a statement must appear in the evidence it cites (all modes).
+3. **Fact check by a second model:** Granite Guardian checks each reworded statement against its cited
+   evidence (groundedness). Legal advice stays with the rules guardrail: in testing, Guardian 2B flagged quoted
+   insurer letters as advice. IBM withdrew Guardian from watsonx on
+   2026-09-30, so it runs locally through Ollama; without it, Granite on watsonx answers the same
+   Yes/No check. The brief always names which checker ran.
+4. **Legal-advice guardrail:** outcome predictions, "you should sign", and valuations are blocked (all modes).
+
+On the brief page, **How this brief was checked** lists each check and its result, and **Try to fool it**
+runs three made-up statements (an invented speed, legal advice, an uncited claim) through the same checks live.
+A statement copied word for word from its cited evidence is grounded by definition, so the model checks the
+statements Granite rewrote.
 
 ## Project structure
 ```
@@ -94,6 +111,9 @@ casebridge/brief.py     The agent pipeline: rules -> Granite -> guardrails
 casebridge/safety.py    Citation enforcement, advice guardrail, PII redaction
 casebridge/matching.py  Explainable lawyer matching
 data/                   Fictional demo case and fictional lawyer profiles
+.streamlit/config.toml  App theme (colours, font); serves static/ so the font works offline
+static/fonts/           Atkinson Hyperlegible font files (SIL Open Font License)
+PRODUCT.md              Product context used by the Impeccable design skill
 tests/                  Automated tests
 scripts/                README auto-update script
 AGENTS.md               Rules for the team and for AI coding agents
@@ -123,7 +143,17 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 
 | Date | Author | Change |
 |---|---|---|
-| 2026-10-23 | Aktanbekov | Add CaseBridge MVP, team rules, and auto-updating README |
-| 2026-10-23 | Aktanbekov | Extend .gitignore for secrets, AI coding tools, and editors |
-| 2026-10-23 | Aktai Aktanbekov | Initial commit |
+| 2026-10-24 | Claude | ui: cap uploads at 25 MB and show file names as typed, not as Markdown |
+| 2026-10-24 | Claude | safety: hide names with no cue using common first-name and surname lists |
+| 2026-10-24 | Claude | safety: close advice, redaction and file-name injection gaps from security sweep |
+| 2026-10-24 | Claude | ai: treat model JSON as untrusted (coerce types, known languages only) |
+| 2026-10-24 | Claude | ingest: return a placeholder for damaged or huge PDFs instead of crashing |
+| 2026-10-23 | Aktanbekov | ai: live Granite Guardian fact check, current watsonx models, check report UI |
+| 2026-10-24 | Claude | ui: preview of the judge demo moments (scoreboard, build steps, trick letter, reveal) |
+| 2026-10-24 | Claude | rules: never merge two sentences whose numbers differ |
+| 2026-10-24 | Claude | docs: log Bob's stress-test session |
+| 2026-10-24 | Claude | safety: stop the email pattern freezing on long hyphenated text |
+| 2026-10-24 | Claude | engine: scoreboard numbers and redaction swaps for the demo UI |
+| 2026-10-24 | Claude | engine: fixes from the code review |
+| 2026-10-24 | Claude | data: add a trick insurer letter for the hidden-instruction demo |
 <!-- AUTO:CHANGELOG:END -->

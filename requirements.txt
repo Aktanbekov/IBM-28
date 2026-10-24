@@ -1,4 +1,8 @@
 streamlit>=1.40
 pypdf>=5.0
 pytest>=8.0
-anthropic>=0.40
+faster-whisper>=1.1
+av>=11,<16  # faster-whisper 1.2 breaks on PyAV 16+ (removed metadata_errors)
+pillow>=10  # photo metadata (already installed with streamlit)
+streamlit-mic-recorder>=0.0.4  # in-browser mic recording on the intake page
+anthropic>=0.40  # optional: reads text in photos when ANTHROPIC_API_KEY is set
