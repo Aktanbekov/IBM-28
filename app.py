@@ -794,6 +794,8 @@ if page.startswith("1"):
             title = f"{safe} · contains instructions to an AI" if e.id in injected else safe
             icon = "gpp_bad" if e.id in injected else KIND_ICONS.get(e.kind, "attach_file")
             with st.expander(title, icon=f":material/{icon}:", key=f"ev_{e.id}", expanded=e.id in injected):
+                if picture := ingest.demo_photo(e):
+                    st.image(str(picture), width=360)
                 st.html(blocked_stamp(e.text) if e.id in injected else f'<p class="cb-source">{esc(e.text)}</p>')
                 if e.kind == "voice":
                     meta("Filler sounds, swearing and insults are left out of the transcript. Your recording is unchanged.")
@@ -930,6 +932,8 @@ elif page.startswith("2"):
                     with t_own:
                         st.html(f'<p class="cb-source">{esc(words)}</p>')
                 else:
+                    if picture := ingest.demo_photo(src):
+                        st.image(str(picture), width="stretch")
                     st.html(f'<div class="cb-source-head">{tag(sid)}<span>Cited sentences are highlighted</span>'
                             f'</div><p class="cb-source">{marked_source(src, all_facts)}</p>')
 
