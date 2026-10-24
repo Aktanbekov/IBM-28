@@ -9,21 +9,54 @@ from .models import CaseBrief, Evidence, Fact
 
 # The assistant organizes facts. It must never predict outcomes, value a case, or tell
 # the person what legal action to take.
+_LEGAL_ACT = r"(accept|sign|reject|refuse|decline|settle|sue|file|counter|take (?:the|their|that|this) (?:money|offer|deal|settlement|check))"
+_SOFT = r"(?:\s+(?:probably|definitely|really|just|absolutely|certainly|likely|not|never|seriously|strongly|consider|think about))*"
 ADVICE_PATTERNS = [
+    # Predicting the outcome: "you'll win", "you're likely to lose", "a jury would side with you".
+    r"\byou(?:'ll|'d|'re| will| would| are| could| can| might| should)?(?:\s+\w+){0,3}?\s+(win|lose|prevail)\b"
+    r"(?!\s+(?:consciousness|your|my|his|her|their|time|wages|weight|sleep|work|income|the use|track|balance|control))",
     r"\byou (will|would|should|are going to) (win|lose)\b",
-    r"\byou should (accept|sign|reject|settle|sue|file)\b",
+    r"\b(jury|judge|court)\s+(?:would|will|is likely to|should|could)\s+(?:probably |likely |definitely |almost certainly )?"
+    r"(side|rule|find|award|agree|believe)\b",
+    # Telling the person what to do: "you should accept", "you ought to settle", "don't sign".
+    rf"\byou(?:'d| would)?\s+(?:should|ought to|must|need to|have to|had better|'d better|better){_SOFT}"
+    rf"(?:\s+\w+)?\s+{_LEGAL_ACT}\b",
     r"\bshould(n't| not)? you (accept|sign|reject|settle|sue|file)\b",
-    r"\b(case|claim) (is|could be|may be|might be) worth\s*(\$|\d|a lot|more|up to|around|about|at least)",
-    # Spanish: "debería firmar", "su caso vale", "ganará el caso"
-    r"\bdeber[ií]a(s|n)? (aceptar|firmar|rechazar|demandar|llegar a un acuerdo|conformarse)\b",
-    r"\b(su|tu) (caso|reclamo) vale\b",
-    r"\b(usted )?(ganar[áa]|perder[áa]|vas? a ganar|vas? a perder)\b",
+    rf"(?:^|[.!?:]\s+|\n)(?:please\s+|just\s+)?(?:don't|do not|never)\s+{_LEGAL_ACT}\b",
+    rf"(?:^|[.!?:]\s+|\n)(?:just\s+)?(accept|reject|refuse|settle for|sue)\s+(?:the|their|this|that|it|them|him|her)\b",
+    r"\bI(?:'d| would)? (?:strongly )?(?:recommend|suggest|advise|urge)\b",
+    rf"\bI(?:'d| would)(?:\s+\w+)?\s+{_LEGAL_ACT}\b",
+    r"\b(?:my|our) (?:advice|recommendation)\b",
+    r"\bit(?:'s| is| would be| might be| may be) (?:wise|smart|best|a good idea|a bad idea|in your (?:best )?interest) to\b",
+    r"\byour best (?:option|move|bet|choice) is\b",
+    r"\bthere(?:'s| is) no (?:point|use|reason) (?:in )?(?:fighting|suing|contesting|waiting|hiring)\b",
+    r"\bmost people (?:in your (?:situation|position|shoes) )?(?:would )?(?:settle|accept|sign|sue|take)\b",
+    # Putting a value on the case: "your claim is easily worth six figures", "you could get $50,000".
+    r"\b(case|claim|lawsuit|suit|injur(?:y|ies))\b[^.?!\n]{0,25}\bworth\b"
+    r"(?!\s+(?:fighting|pursuing|noting|mentioning|keeping|reporting|a look|the (?:effort|time|trouble)|it)\b)",
+    r"\b(?:this|it|that)(?:'s| is| could be| may be| might be| would be)\s+(?:\w+\s+)?worth\s+"
+    r"(?:\$|\d|six|seven|a lot|more|up to|around|about|at least|over)",
+    r"\byou(?:'d|'re| could| might| can| would| should| are likely to| stand to)(?:\s+\w+)?\s+"
+    r"(?:get|recover|receive|be awarded|collect|walk away with)\s+(?:up to |around |about |at least |over |more than )?"
+    r"(?:\$|\d|six figures|seven figures|a lot|compensation|damages|a settlement)",
+    r"\bexpect(?:ed)?\s+(?:to (?:get|receive|recover)\s+)?(?:a\s+)?(?:settlement|payout|award|around \$|about \$|up to \$|at least \$|\$)",
     r"\bguarantee",
-    r"\b(strong|weak|winning|losing) case\b",
+    r"\b(strong|weak|winning|losing|good|solid|great|excellent|airtight|slam[- ]dunk) (case|claim)\b",
     r"\bsettle for \$",
-    r"\bexpect(ed)? (a )?(settlement|payout|award) of\b",
+    r"\b(case|claim)\s+(?:should|will|would|could|might)\s+(?:probably |likely |easily )?settle\b",
+    # Spanish: "debería firmar", "le conviene aceptar", "su caso vale", "tiene un caso fuerte", "ganará"
+    r"\bdeber[ií]a(s|n)? (aceptar|firmar|rechazar|demandar|llegar a un acuerdo|conformarse)\b",
+    r"\b(le|te|les) conviene (aceptar|firmar|rechazar|demandar|llegar a un acuerdo|conformarse)\b",
+    r"\b(su|tu) (caso|reclamo) vale\b",
+    r"\b(tiene|tienes|tienen) un (?:buen caso|caso (?:muy )?(?:fuerte|s[oó]lido|ganado|bueno))\b",
+    r"\b(usted )?(ganar[áa]|perder[áa]|vas? a ganar|vas? a perder)\b",
+    # Vietnamese, matched without accents (see _advice_text): "bà nên ký" (you should sign),
+    # "vụ này đáng giá" (this case is worth), "bà sẽ thắng" (you will win).
+    r"\b(ba|ong|anh|chi|ban|em|co|chu|bac|cau)\s+nen\s+(ky|chap nhan|tu choi|kien|hoa giai|dong y|nhan tien)\b",
+    r"\bvu (?:kien |viec )?nay\b.{0,20}\b(dang gia|tri gia)\b",
+    r"\b(ba|ong|anh|chi|ban|em|co|chu|bac|cau)\s+(?:chac chan )?se\s+(thang|thua)\b",
 ]
-ADVICE_RE = re.compile("|".join(ADVICE_PATTERNS), re.I)
+ADVICE_RE = re.compile("|".join(f"(?:{p})" for p in ADVICE_PATTERNS), re.I)
 
 
 # --- Spoken-transcript cleanup ------------------------------------------------------------
@@ -73,8 +106,14 @@ def clean_speech(text: str) -> tuple[str, int]:
     return clean, removed
 
 
+def _advice_text(text: str) -> str:
+    """The text as the advice check sees it: the same clean-up as the injection scan (no hidden
+    characters, look-alike letters or accents), with curly apostrophes made straight."""
+    return _scan_text(text).replace("’", "'").replace("‘", "'")
+
+
 def is_advice(text: str) -> bool:
-    return bool(ADVICE_RE.search(text))
+    return bool(ADVICE_RE.search(_advice_text(str(text))))
 
 
 def enforce_citations(facts: list[Fact], valid_ids: set[str]) -> tuple[list[Fact], int]:
@@ -147,15 +186,16 @@ def apply_guardrails(brief: CaseBrief, valid_ids: set[str],
         dropped_total += dropped
         clean = []
         for f in facts:
-            if is_advice(f.text):
+            if is_advice(f.text) or is_advice(f.when or ""):   # a model can put advice in "when" too
                 blocked += 1
             else:
                 clean.append(f)
         setattr(brief, section, clean)
     if is_advice(brief.summary):
         blocked += 1
-        brief.summary = re.sub(r"[^.]*(" + ADVICE_RE.pattern + r")[^.]*\.?", "", brief.summary,
-                               flags=re.I).strip()
+        # Drop every sentence that reads as advice; keep the rest of the summary.
+        brief.summary = " ".join(s for s in re.split(r"(?<=[.!?])\s+", brief.summary.strip())
+                                 if not is_advice(s))
     if dropped_total:
         brief.warnings.append(f"Removed {dropped_total} AI-generated statement(s) with no source evidence.")
     if blocked:
@@ -256,7 +296,8 @@ def has_injection(text: str) -> bool:
 
 def injection_flags(evidence: list[Evidence]) -> list[str]:
     """Ids of evidence items that contain text trying to instruct an AI."""
-    return [e.id for e in evidence if has_injection(e.text)]
+    # The title is scanned too: for an upload it is the file name, which anyone can write.
+    return [e.id for e in evidence if has_injection(f"{e.title}\n{e.text}")]
 
 
 def injection_warnings(evidence: list[Evidence]) -> list[str]:
@@ -273,17 +314,29 @@ def wrap_evidence(evidence_id: str, kind: str, title: str, text: str) -> str:
     "break out" by writing </evidence> itself.
     """
     clean = re.sub(r"</?\s*evidence[^>]*>", "[tag removed]", text, flags=re.I)
-    flag = ' flagged="possible-instructions"' if has_injection(text) else ""
-    return f'<evidence id="{evidence_id}" kind="{kind}"{flag}>\n{title}\n{clean}\n</evidence>'
+    # The title (a file name for uploads) goes on one line with no tags or quotes, so it can't
+    # open a fake item or close this one.
+    safe_title = re.sub(r"[<>\"\r\n]+", " ", title).strip()
+    safe_kind = re.sub(r"[^a-z]", "", kind.lower())
+    flag = ' flagged="possible-instructions"' if has_injection(f"{title}\n{text}") else ""
+    return f'<evidence id="{evidence_id}" kind="{safe_kind}"{flag}>\n{safe_title}\n{clean}\n</evidence>'
 
 
 # --- Redaction for the lawyer-side case board -------------------------------------------
 # Pattern-based, and tuned to fail closed: when unsure, hide it. Lawyers only see the real
 # brief after the client accepts them.
 
-_UP, _LO = "A-ZÀ-ÖØ-Þ", "a-zß-öø-ÿ"
+# Latin letters with accents beyond Latin-1, by case: Vietnamese "Bảo", "Nguyễn", Polish "Łukasz".
+_EXT = [chr(c) for c in [*range(0x100, 0x250), *range(0x1E00, 0x1F00)]]
+_UP = "A-ZÀ-ÖØ-Þ" + "".join(c for c in _EXT if c.isupper())
+_LO = "a-zß-öø-ÿ" + "".join(c for c in _EXT if c.islower())
 _WORD = rf"[{_UP}](?:['’][{_UP}])?[{_LO}]+(?:[-'’][{_UP}]?[{_LO}]+)*"   # also O'Brien, Smith-Jones
 NAME = rf"({_WORD}(?:\s{_WORD}){{0,2}})"          # "Maria Lopez", "Rosa María Martínez"
+# Forms and scans write names in capitals, often surname first: "LOPEZ, MARIA". Only used after
+# an unambiguous label, because capitals are also used for headings.
+_CAPS = rf"[{_UP}]{{2,}}(?:['’-][{_UP}]+)*"
+CAPS_NAME = rf"({_CAPS}(?:,?[ \t]+{_CAPS}){{0,2}})"
+_INITIAL = rf"(?:[{_UP}]\.\s*)?"                  # "Officer J. Ramirez"
 _MONTHS = r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
 _DATE = (r"(?:\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{4}-\d{2}-\d{2}|"           # 03/08/1984, 08.03.1984
          rf"{_MONTHS}\s+\d{{1,2}},?\s+\d{{4}}|{_MONTHS},?\s+\d{{4}}|"         # March 8, 1984 / March 1984
@@ -301,9 +354,11 @@ PII_PATTERNS = [  # (regex, replacement); order matters: specific before generic
     # Starts only where a run of email characters starts (not at every \b inside it): with \b,
     # a long "word-word-word-..." with no @ backtracked from every position and took seconds.
     (re.compile(r"(?<![\w.+-])[\w.+-]+\s*(?:@|＠|\(at\)|\[at\])\s*[\w-]+(?:\.[\w-]+)+\b", re.I), "[EMAIL]"),
+    # Social media handles: "@marialopez84". After the email pattern, so "a@b.com" stays an email.
+    (re.compile(r"(?<![\w.@])@[A-Za-z0-9_](?:[A-Za-z0-9_.]{0,28}[A-Za-z0-9_])?\b"), "[HANDLE]"),
     # Dates of birth after a label, in many formats, English and Spanish.
-    (re.compile(rf"\b((?i:DOB|D\.O\.B\.?|date of birth|born(?: on| in)?|fecha de nacimiento|"
-                rf"nacid[oa] (?:el|en)))\s*[:\-]?\s*{_DATE}\b"), r"\1 [REDACTED]"),
+    (re.compile(rf"\b((?i:DOB|D\.O\.B\.?|date of birth|birth ?date|birthday(?: is)?|born(?: on| in)?|"
+                rf"fecha de nacimiento|cumplea[ñn]os(?: es)?|nacid[oa] (?:el|en)))\s*[:\-]?\s*{_DATE}\b"), r"\1 [REDACTED]"),
     # SSN with dashes, spaces, dots or nothing between the groups.
     (re.compile(r"\b\d{3}([\s.-]?)\d{2}\1\d{4}\b"), "[SSN]"),
     (re.compile(r"(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\b\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b"), "[PHONE]"),
@@ -315,11 +370,12 @@ PII_PATTERNS = [  # (regex, replacement); order matters: specific before generic
     (re.compile(r"\b(?=[A-Za-z0-9]{17}\b)(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])"
                 r"[A-HJ-NPR-Za-hj-npr-z0-9]{17}\b"), "[VIN]"),
     (re.compile(r"\b\d[A-Za-z]{3}\d{3}\b"), "[PLATE]"),                   # California plate, any case
+    (re.compile(r"\b\d[\s-][A-Z]{3}[\s-]\d{3}\b"), "[PLATE]"),               # spaced: "7 ABC 123"
     (re.compile(r"\b((?i:plate|placa|license plate))(\s*(?i:no\.?|number|#))?\s*[:#]?\s*[A-Za-z0-9-]{2,8}\b"),
      r"\1 [PLATE]"),
     (re.compile(r"\b[A-Za-z]{2}-\d{2}-\d{4,}\b"), "[REPORT #]"),
     (re.compile(r"\b((?i:policy|claim|member|account|MRN|medical record|driver'?s license|DL|report|"
-                r"incident|reference|ref)(?:\s*(?i:no\.?|number|#))?)\s*[:#]?\s*"
+                r"incident|reference|ref|ID)(?:\s*(?i:no\.?|number|#|ID))?)\s*[:#]?\s*"
                 r"(?=[A-Za-z0-9-]*\d)[A-Za-z0-9][A-Za-z0-9-]{3,}\b"), r"\1 [ID]"),
     # Prefixed IDs written on their own, lowercase too: "hc-55190".
     (re.compile(r"\b[A-Za-z]{2,3}-\d{4,}\b"), "[ID]"),
@@ -338,22 +394,34 @@ PII_PATTERNS = [  # (regex, replacement); order matters: specific before generic
 ]
 
 CLIENT_NAME_PATTERNS = [
-    rf"[Mm]y name is {NAME}", rf"\bI am {NAME}", rf"\bI'm {NAME}", rf"[Mm]e llamo {NAME}",
+    rf"[Mm]y name(?: is|'s|’s) {NAME}", rf"\bI am {NAME}", rf"\bI'm {NAME}", rf"[Mm]e llamo {NAME}",
     rf"[Mm]i nombre es {NAME}", rf"(?:Patient|Claimant|Client|Customer|Name|Nombre):\s*{NAME}",
     rf"(?:Dear|Hi|Hello|Hola|Estimad[oa]) (?:Ms\.|Mr\.|Mrs\.|Sra\.|Sr\.)?\s*{NAME}", rf"Vehicle 1:[^.]*?driver {NAME}",
+    rf"(?i:tôi tên là|tên tôi là|tôi là)\s+{NAME}",                       # Vietnamese: "my name is"
+    rf"(?:[Mm]y name is|MY NAME IS|(?i:patient|claimant|client|insured|name|nombre)\s*:)\s*{CAPS_NAME}",
 ]
 ROLE_PATTERNS = [
     ("[CLIENT]", CLIENT_NAME_PATTERNS),
     ("[OTHER PARTY]", [rf"driver,? (?:his|her) name is {NAME}", rf"Vehicle 2:[^.]*?driver {NAME}",
+                       rf"(?i:the other driver|the driver|other driver|el otro conductor|el conductor)"
+                       rf"(?:,| was| is| named| called| fue| era|:)*\s+{NAME}",
                        rf"our insured {NAME}", rf"(?:owner|defendant):?\s+{NAME}"]),
     ("[ADJUSTER]", [rf"[Aa]djuster:?\s+{NAME}", rf"{NAME}, (?:a |the |your )?(?:claims )?adjuster"]),
-    ("[PERSON]", [rf"(?i:witness|manager|employee|officer|nurse|supervisor|clerk|cashier|gerente|"
-                  rf"testigo)(?: named|:|,)? {NAME}",
-                  rf"\b(?:Dr|Mr|Ms|Mrs|Sr|Sra|Srta)\.?\s+{NAME}", rf"(?:named|called|llamad[oa]) {NAME}", rf"[Tt]his is {NAME}",
-                  rf"(?:Sincerely|Regards|Atentamente),?\s+{NAME}"]),
+    ("[PERSON]", [rf"(?i:witness|manager|employee|officer|deputy|detective|sergeant|sgt|trooper|paramedic|"
+                  rf"nurse|supervisor|clerk|cashier|gerente|testigo)\.?(?: named|:|,)? {_INITIAL}{NAME}",
+                  rf"\b(?:Dr|Mr|Ms|Mrs|Sr|Sra|Srta)\.?\s+{_INITIAL}{NAME}", rf"(?:named|called|llamad[oa]) {NAME}",
+                  rf"[Tt]his is {NAME}",
+                  rf"(?:Sincerely|Regards|Atentamente|Signed|Signature|Firma(?:do)?)[,:]?\s+{NAME}",
+                  # Family and friends: "my son Daniel", "my husband, Carlos Ruiz", "mi esposo Juan".
+                  rf"\b(?i:my|mi|our|his|her|their)\s+(?i:son|daughter|husband|wife|partner|boyfriend|girlfriend|"
+                  rf"fianc[ée]e?|brother|sister|mother|father|mom|dad|mum|grandson|granddaughter|grandmother|"
+                  rf"grandfather|grandma|grandpa|cousin|aunt|uncle|niece|nephew|friend|neighbou?r|co-?worker|boss|"
+                  rf"roommate|esposo|esposa|marido|hijo|hija|hermano|hermana|madre|padre|mam[aá]|pap[aá]|nieto|"
+                  rf"nieta|abuelo|abuela|primo|prima|t[ií]o|t[ií]a|amigo|amiga|novio|novia|vecino|vecina|jefe)"
+                  rf"(?:,| named| called| llamad[oa])?\s+{NAME}"]),
 ]
 # Speech-to-text can drop capitals: "my name is rosa martinez". Only unambiguous cues here.
-LOWER_INTRO_RE = re.compile(r"(?i:my name is|me llamo|mi nombre es|patient:|nombre:)\s+"
+LOWER_INTRO_RE = re.compile(r"(?i:my name is|my name['’]s|me llamo|mi nombre es|patient:|nombre:)\s+"
                             rf"([{_LO}'’-]+(?:\s[{_LO}'’-]+){{0,2}})")
 INTRO_STOP = {"and", "y", "i", "im", "my", "from", "de", "del", "la", "el", "is", "es", "but", "pero",
               "so", "the", "a", "was", "fui", "estaba", "soy", "am", "me", "mi", "tengo"}
@@ -366,12 +434,77 @@ COMMON_WORDS = {"will", "mark", "grant", "bill", "may", "june", "april", "rose",
 NOT_NAMES = {"I", "The", "And", "But", "So", "My", "He", "She", "They", "We", "His", "Her", "Our",
              "Okay", "Yes", "No", "Not", "Very", "Really", "Just", "Sorry", "Scared", "Fine", "Here",
              "Driver", "Vehicle", "Police", "Officer", "Store", "Manager", "Insurance", "Doctor", "Dr",
-             "Contact", "Call", "Please", "Hi", "Hello", "Dear", "Thanks", "Thank", "Regards"}
+             "Contact", "Call", "Please", "Hi", "Hello", "Dear", "Thanks", "Thank", "Regards",
+             # Labels that sit next to capitalized names on forms: "LOPEZ, MARIA DOB 03/08/1984".
+             "DOB", "MRN", "SSN", "DL", "ID", "AGE", "SEX", "DATE", "ER", "MD", "RN", "CA", "USA", "PHONE",
+             "ADDRESS", "MALE", "FEMALE", "M", "F", "N/A", "NA"}
 
 
 def _plain(s: str) -> str:
     """Strip accents, so "Martínez" also catches "Martinez"."""
     return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+
+# Names with no cue around them ("Kevin said he was sorry") are caught by common first names and
+# surnames (US, Spanish, Vietnamese, Chinese, Korean, Indian). Words that are also everyday English
+# ("Will", "Brown", "Young", "Do", "Long") are left out on purpose. Over-hiding is the safe side.
+FIRST_NAMES = set("""
+Aaron Adam Adrian Ahmed Aisha Alan Albert Alberto Alejandra Alejandro Alex Alexander Alexis Alfredo Alice
+Alicia Alma Amanda Amber Amir Amit Amy Ana Anand Andrea Andres Andrew Angela Angelica Anh Anita Ann Anna
+Anthony Antonio Arjun Armando Arturo Ashley Barbara Benjamin Beatriz Betty Blanca Bao Brandon Brenda Brian
+Brittany Bryan Camila Carlos Carmen Carol Carolina Catherine Cesar Chad Charles Cheng Chris Christian
+Christina Christine Christopher Cindy Claudia Cristina Cynthia Daniel Daniela David Deborah Debra Denise
+Dennis Derek Diana Diego Donald Donna Dorothy Douglas Duc Dung Edgar Eduardo Edward Elena Elizabeth Emily
+Emma Enrique Eric Erica Erik Ernesto Esther Eugene Evelyn Fatima Fernando Francisco Gabriel Gabriela Gary
+George Gerardo Gloria Gonzalo Gregory Guadalupe Guillermo Gustavo Hai Hannah Hao Harold Heather Hector
+Helen Hieu Hoa Hung Hyun Isabel Ivan Jacob Jaime Jake James Jamal Jasmine Jason Javier Jeffrey Jennifer
+Jeremy Jesse Jessica Jesus Ji Jia Jin Joanna Joel John Jonathan Jorge Jose Joseph Joshua Joyce Juan Juana
+Judith Julia Julian Julie Justin Karen Katherine Kathleen Kathryn Kayla Kelly Kenneth Kevin Kim Kimberly
+Krishna Kyle Larry Laura Lauren Leticia Lina Linda Lisa Lucia Luis Luz Madison Manuel Marco Marcos
+Margaret Maria Mariana Marie Marisol Marta Martha Martin Mary Matthew Megan Melissa Mia Michael Michelle
+Miguel Min Minh Mohammed Monica Nancy Natalia Nathan Nicholas Nicole Noah Olga Olivia Omar Oscar Pablo
+Pamela Patricia Patrick Paul Paula Pedro Peter Phuong Pooja Priya Rachel Rafael Rahul Rajesh Ramon Raul
+Rebecca Ricardo Richard Roberto Robert Rocio Rodrigo Ronald Rosa Ruth Ryan Samantha Samuel Sandra Sara
+Sarah Scott Sean Sergio Sharon Shirley Silvia Sofia Sonia Stephanie Stephen Steven Sunil Susan Teresa
+Thanh Thao Thomas Timothy Tuan Tyler Valeria Vanessa Veronica Vikram Virginia Walter Wei William Xiao
+Yesenia Yolanda Yong Yuki Zachary
+""".split())
+SURNAMES = set("""
+Acosta Aguilar Alvarado Alvarez Anderson Bui Castillo Castro Chavez Chen Cho Choi Cruz Dang Diaz Dinh
+Dominguez Duong Ellison Espinoza Estrada Flores Garcia Gomez Gonzales Gonzalez Gupta Gutierrez Guzman
+Hernandez Herrera Hoang Holt Huang Huynh Jackson Jimenez Johnson Juarez Kang Kumar Lam Lee Li Lin Liu
+Lopez Luna Martinez Mehta Mendez Mendoza Molina Morales Moreno Munoz Ngo Nguyen Ortega Ortiz Patel
+Pena Perez Pham Phan Ramirez Ramos Reyes Rios Rivera Rodriguez Romero Ruiz Salazar Sanchez Sandoval Shah
+Sharma Silva Singh Smith Soto Suarez Thompson Torres Tran Trinh Truong Vargas Vasquez Vazquez Vega
+Vo Vu Wang Whitmore Williams Wilson Wong Wu Yang Zhang Zhao
+""".split())
+# Place names built on a person's name ("San Jose", "Santa Clara", "Stevens Creek Blvd").
+_PLACE_BEFORE = re.compile(r"(?:San|Santa|Santo|St\.?|Saint|Mount|Mt\.?|Fort|Lake|Port|Los|Las|El)\s+$")
+_PLACE_AFTER = re.compile(r"\s+(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Ln|Lane|Way|Ct|Court|"
+                          r"Pl|Place|Creek|Park|Center|Centre|Hospital|Medical|Clinic|Market|Insurance|Mutual|"
+                          r"County|City|Police|School|University|College|Bank|Plaza|Mall|Expressway|Freeway)\b")
+_CAP_WORD_RE = re.compile(rf"(?<![\w\[]){_WORD}")
+_NEXT_WORD_RE = re.compile(rf"[ \t]+({_WORD})")
+
+
+def _dictionary_names(text: str) -> list[str]:
+    """Names with no cue, from the first-name and surname lists: "Kevin Holt", "Kevin", "Nguyen"."""
+    found = []
+    for m in _CAP_WORD_RE.finditer(text):
+        word = m.group(0)
+        if word not in FIRST_NAMES and _plain(word) not in SURNAMES:
+            continue
+        if _PLACE_BEFORE.search(text[max(0, m.start() - 8):m.start()]) or _PLACE_AFTER.match(text, m.end()):
+            continue
+        # Up to two more capitalized words belong to the name: "Kevin Holt said", "Tran Van Minh".
+        end = m.end()
+        for _ in range(2):
+            nxt = _NEXT_WORD_RE.match(text, end)
+            if not nxt or nxt.group(1) in NOT_NAMES or _PLACE_AFTER.match(text, nxt.end()):
+                break
+            word, end = f"{word} {nxt.group(1)}", nxt.end()
+        found.append(word)
+    return found
 
 
 def find_names(texts: list[str]) -> dict[str, str]:
@@ -381,7 +514,8 @@ def find_names(texts: list[str]) -> dict[str, str]:
     for role, patterns in ROLE_PATTERNS:
         for p in patterns:
             for m in re.finditer(p, joined):
-                words = [w for w in m.group(1).split() if w not in NOT_NAMES]
+                words = [w.strip(",").title() if w.strip(",").isupper() else w.strip(",")
+                         for w in m.group(1).split() if w.strip(",") not in NOT_NAMES]
                 # Stop at the first non-name word: "Kevin Holt Said" is rare, "Holt said" is lowercase.
                 if words:
                     names.setdefault(" ".join(words), role)
@@ -393,6 +527,8 @@ def find_names(texts: list[str]) -> dict[str, str]:
             words.append(w)
         if words:
             names.setdefault(" ".join(words).title(), "[CLIENT]")
+    for name in _dictionary_names(joined):
+        names.setdefault(name, "[PERSON]")
     # Also catch first-name-only and surname-only mentions ("Maria said", "Ms. Lopez").
     for full, role in list(names.items()):
         for part in full.split():
@@ -524,7 +660,7 @@ PLACEHOLDER_LABELS = {
     "[CLIENT]": "your name", "[OTHER PARTY]": "the other party's name",
     "[ADJUSTER]": "insurance adjusters' names", "[PERSON]": "other people's names",
     "[PHONE]": "phone numbers", "[EMAIL]": "email addresses", "[ADDRESS]": "street addresses",
-    "[ZIP]": "ZIP codes", "[LOCATION]": "GPS locations", "[PLATE]": "licence plates",
+    "[ZIP]": "ZIP codes", "[HANDLE]": "social media handles", "[LOCATION]": "GPS locations", "[PLATE]": "licence plates",
     "[REPORT #]": "police report numbers", "[ID]": "claim, policy and record numbers",
     "[SSN]": "Social Security numbers", "[VIN]": "vehicle ID numbers", "[REDACTED]": "dates of birth",
 }
