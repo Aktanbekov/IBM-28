@@ -7,9 +7,9 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-24 01:14 (commit `9335ce4`) |
-| Tests | passing (595 passed) |
-| Commits | 103 |
+| Last updated | 2026-10-24 01:36 (commit `616cbc0`) |
+| Tests | passing (603 passed) |
+| Commits | 110 |
 | Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Nurislam, Shahzod Bakhriev |
 <!-- AUTO:STATUS:END -->
 
@@ -159,14 +159,14 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 
 | Date | Author | Change |
 |---|---|---|
+| 2026-10-24 | Claude | ui: list set-aside statements under How it was checked and in the trust strip |
+| 2026-10-24 | Claude | ai: attribute claims in the prompt, rebuild a failing summary, retry watsonx rate limits |
+| 2026-10-24 | Claude | safety: set aside statements a check rejects, flag fault words the evidence doesn't use |
 | 2026-10-24 | Aktanbekov | ui: calmer brief, lawyer list and portal; one Granite build at a time |
+| 2026-10-24 | Claude | ai: show IBM's error body when the watsonx chat self-check fails |
 | 2026-10-23 | Aktanbekov | Shared lawyer database, delete my case, data panel, Granite tuned on a real run |
 | 2026-10-23 | Aktanbekov | ingest: read form-style PDFs one field per sentence, explain scanned PDFs |
 | 2026-10-24 | Claude | ui: cap uploads at 25 MB and show file names as typed, not as Markdown |
 | 2026-10-24 | Claude | safety: hide names with no cue using common first-name and surname lists |
 | 2026-10-24 | Claude | safety: close advice, redaction and file-name injection gaps from security sweep |
-| 2026-10-24 | Claude | ai: treat model JSON as untrusted (coerce types, known languages only) |
-| 2026-10-24 | Claude | ingest: return a placeholder for damaged or huge PDFs instead of crashing |
-| 2026-10-23 | Nurislam | ci: restrict pytest to tests/ dir; add anthropic to requirements |
-| 2026-10-23 | Nurislam | Added to the features to the actual demo |
 <!-- AUTO:CHANGELOG:END -->
