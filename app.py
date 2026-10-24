@@ -584,7 +584,9 @@ if page.startswith("1"):
             for e in ss.evidence))
         injected = flagged_ids()   # not `flagged`: that name is the review-mark helper
         for e in ss.evidence:
-            title = f"{e.title} · contains instructions to an AI" if e.id in injected else e.title
+            # Titles of uploads are file names: escape Markdown so "my_photo_1.jpg" or "[x](url)" shows as typed.
+            safe = re.sub(r"([\\`*_{}\[\]()<>#+!|~-])", r"\\\1", e.title)
+            title = f"{safe} · contains instructions to an AI" if e.id in injected else safe
             icon = "gpp_bad" if e.id in injected else KIND_ICONS.get(e.kind, "attach_file")
             with st.expander(title, icon=f":material/{icon}:", key=f"ev_{e.id}", expanded=e.id in injected):
                 st.html(blocked_stamp(e.text) if e.id in injected else f'<p class="cb-source">{esc(e.text)}</p>')

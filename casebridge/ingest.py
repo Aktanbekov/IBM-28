@@ -35,13 +35,23 @@ _whisper_model = None
 _whisper_error: Exception | None = None   # remembered so a missing model doesn't stall every upload
 
 
+MAX_PDF_PAGES = 50   # a brief needs a few pages; a 5,000-page upload would stall the app
+
+
 def pdf_text(data: bytes) -> str:
     try:
         from pypdf import PdfReader
     except ImportError:
         return "[PDF text extraction unavailable: pip install pypdf]"
-    reader = PdfReader(io.BytesIO(data))
-    return "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+    try:   # a damaged, encrypted or hostile PDF must not crash the app
+        reader = PdfReader(io.BytesIO(data))
+        pages = reader.pages[:MAX_PDF_PAGES]
+        text = "\n".join(page.extract_text() or "" for page in pages).strip()
+    except Exception as exc:
+        return f"[Could not read this PDF ({type(exc).__name__}). Please type what it says.]"
+    if len(reader.pages) > MAX_PDF_PAGES:
+        text += f"\n[Only the first {MAX_PDF_PAGES} pages were read.]"
+    return text or "[No text found in this PDF. If it is a scan, please type what it says.]"
 
 
 def _load_whisper():

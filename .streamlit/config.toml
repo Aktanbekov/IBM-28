@@ -3,6 +3,8 @@
 
 [server]
 enableStaticServing = true
+# Megabytes per uploaded file. A voice memo or scan is a few MB; 200 MB (the default) could stall the app.
+maxUploadSize = 25
 
 [client]
 # Hide the Deploy button and developer menu so the demo shows only the product.
