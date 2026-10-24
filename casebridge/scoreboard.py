@@ -35,6 +35,8 @@ def brief_stats(evidence: list[Evidence], brief: CaseBrief, red: dict | None = N
         "advice_given": sum(1 for t in [brief.summary, *(f.text for f in facts)] if safety.is_advice(t)),
         "advice_blocked": _from_warning(brief.warnings, r"Blocked (\d+) statement"),
         "uncited_removed": _from_warning(brief.warnings, r"Removed (\d+) AI-generated"),
+        # Statements a check found unsupported, kept out of the brief (safety.apply_guardrails).
+        "set_aside": sum(len(c.get("items", [])) for c in brief.checks if c.get("id") == "set_aside"),
         "hidden_instructions": len(safety.injection_flags(evidence)),
         "details_hidden": sum(n for label, n in safety.privacy_summary(red).items()
                               if label != "statements you chose to hide") if red else 0,

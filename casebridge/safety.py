@@ -185,6 +185,64 @@ def check_numbers(brief: CaseBrief, evidence_texts: dict[str, str]) -> int:
     return flagged
 
 
+# --- Fault words ----------------------------------------------------------------------------
+# A brief reports what each source says. It never concludes who is at fault: a model rewording
+# "he was going 90 and was drunk" as "the at-fault driver was intoxicated" turns a claim into a
+# finding. These words are allowed only when the cited evidence itself uses them.
+CONCLUSION_TERMS = [
+    r"at[- ]fault", r"\bfault\b", r"negligen\w*", r"liab(?:le|ility)", r"reckless\w*", r"careless\w*",
+    r"excessive(?:ly)?", r"to blame", r"(?:was|is|were) responsible for", r"intoxicated", r"under the influence",
+    r"\bDUI\b", r"drunk[- ]driv\w*", r"illegal(?:ly)?", r"unlawful(?:ly)?", r"violat\w*", r"culpab\w*",
+]
+CONCLUSION_RE = re.compile("|".join(rf"(?:{t})" for t in CONCLUSION_TERMS), re.I)
+
+
+def unsupported_conclusions(text: str, cited_texts: list[str]) -> list[str]:
+    """Fault words in a statement that none of its cited evidence uses."""
+    evidence = " ".join(cited_texts).lower()
+    found = []
+    for m in CONCLUSION_RE.finditer(text):
+        word = m.group(0).lower()
+        if word not in evidence and word not in found:
+            found.append(word)
+    return found
+
+
+def check_conclusions(brief: CaseBrief, evidence_texts: dict[str, str]) -> int:
+    """Flag facts (and a model-written summary) that conclude fault in words the evidence doesn't use."""
+    flagged = 0
+    for section in ("timeline", "parties", "injuries", "damages"):
+        for f in getattr(brief, section):
+            words = unsupported_conclusions(f.text, [evidence_texts[s] for s in f.sources if s in evidence_texts])
+            if words:
+                f.guardian_flags.append(f"⚠ \"{', '.join(words)}\" is a conclusion [{', '.join(f.sources)}] doesn't state")
+                flagged += 1
+    if brief.engine != "rules":
+        words = unsupported_conclusions(brief.summary, list(evidence_texts.values()))
+        if words:
+            brief.summary_guardian_flags.append(f"⚠ \"{', '.join(words)}\" is a conclusion the evidence doesn't state")
+            flagged += 1
+    return flagged
+
+
+def _set_aside_flagged(brief: CaseBrief) -> list[dict]:
+    """Move every statement a check marked unsupported (a flag starting with ⚠: the fact check,
+    the numbers check, the fault-words check) out of the brief. They never reach the brief's
+    lists, its counts or the lawyer board; the UI lists them under How it was checked."""
+    removed = []
+    for section in ("timeline", "parties", "injuries", "damages"):
+        kept = []
+        for f in getattr(brief, section):
+            reasons = [r for r in f.guardian_flags if str(r).startswith("⚠")]
+            if reasons:
+                removed.append({"section": section, "text": f.text, "sources": list(f.sources), "when": f.when,
+                                "reasons": [r.removeprefix("⚠").strip() for r in reasons]})
+            else:
+                kept.append(f)
+        setattr(brief, section, kept)
+    return removed
+
+
 def apply_guardrails(brief: CaseBrief, valid_ids: set[str],
                      evidence_texts: dict[str, str] | None = None) -> CaseBrief:
     dropped_total, blocked = 0, 0
@@ -208,6 +266,11 @@ def apply_guardrails(brief: CaseBrief, valid_ids: set[str],
     if blocked:
         brief.warnings.append(f"Blocked {blocked} statement(s) that read like legal advice or outcome predictions.")
 
+    wrong = conclusions = 0
+    if evidence_texts is not None:
+        wrong = check_numbers(brief, evidence_texts)
+        conclusions = check_conclusions(brief, evidence_texts)
+    set_aside = _set_aside_flagged(brief)
     kept = [f for section in ("timeline", "parties", "injuries", "damages") for f in getattr(brief, section)]
     brief.checks.append({
         "id": "sources", "name": "Sources", "status": "flag" if dropped_total else "pass",
@@ -215,7 +278,6 @@ def apply_guardrails(brief: CaseBrief, valid_ids: set[str],
                   + (f" {dropped_total} with no source {'was' if dropped_total == 1 else 'were'} removed."
                      if dropped_total else "")})
     if evidence_texts is not None:
-        wrong = check_numbers(brief, evidence_texts)
         if wrong:
             brief.warnings.append(f"Flagged {wrong} statement(s) with a number that isn't in the evidence they cite.")
         count = sum(len(_numbers(f.text)) for f in kept)
@@ -224,6 +286,22 @@ def apply_guardrails(brief: CaseBrief, valid_ids: set[str],
             "detail": (f"{wrong} statement{' contains' if wrong == 1 else 's contain'} a number its source "
                        "doesn't have." if wrong else
                        f"All {count} numbers (dates, times, amounts) appear in the evidence they cite.")})
+        if conclusions:
+            brief.warnings.append(f"Flagged {conclusions} statement(s) that draw a conclusion about fault "
+                                  "the evidence doesn't state.")
+        brief.checks.append({
+            "id": "conclusions", "name": "Fault words", "status": "flag" if conclusions else "pass",
+            "detail": (f"{conclusions} statement{'' if conclusions == 1 else 's'} called someone at fault, "
+                       "negligent or reckless in words the evidence doesn't use." if conclusions else
+                       "No statement concludes who is at fault in words the evidence doesn't use.")})
+    if set_aside:
+        brief.warnings.append(f"Set aside {len(set_aside)} statement(s) that a check found unsupported by "
+                              "their evidence. They are listed under How it was checked, not in the brief.")
+        brief.checks.append({
+            "id": "set_aside", "name": "Set aside", "status": "flag",
+            "detail": f"{len(set_aside)} statement{' was' if len(set_aside) == 1 else 's were'} kept out of the "
+                      "brief and away from lawyers, because a check found something their evidence doesn't say.",
+            "items": set_aside})
     brief.checks.append({
         "id": "advice", "name": "Legal advice", "status": "flag" if blocked else "pass",
         "detail": (f"{blocked} statement{'' if blocked == 1 else 's'} blocked for predicting an outcome, telling you what to do, "
@@ -650,6 +728,8 @@ def redact_brief(brief: CaseBrief, names: dict[str, str]) -> dict:
     """The anonymized brief for the lawyer board. Every free-text field is redacted, and a final
     leak check blanks out any statement that still contains a known identifier (fail closed)."""
     d = _redact_all(brief.to_dict(), names)
+    for check in d.get("checks", []):
+        check.pop("items", None)   # set-aside statements are for the client's eyes only
     for section in ("timeline", "parties", "injuries", "damages"):
         for f in d[section]:
             if find_leaks(f, names):
