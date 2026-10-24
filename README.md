@@ -7,9 +7,9 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-24 01:43 (commit `3b54a69`) |
-| Tests | passing (605 passed) |
-| Commits | 116 |
+| Last updated | 2026-10-24 01:53 (commit `77e335f`) |
+| Tests | passing (607 passed) |
+| Commits | 120 |
 | Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Nurislam, Shahzod Bakhriev |
 <!-- AUTO:STATUS:END -->
 
@@ -159,6 +159,8 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 
 | Date | Author | Change |
 |---|---|---|
+| 2026-10-24 | Claude | ai: tell the watsonx checker an unreported injury or damage is a new fact |
+| 2026-10-24 | Claude | safety: set aside statements that mention an injury or damage the evidence doesn't |
 | 2026-10-24 | Claude | ui: show statements marked for a second look in the trust strip |
 | 2026-10-24 | Claude | ai: keep fact-check doubts in the brief, ask the watsonx checker about new facts only |
 | 2026-10-24 | Claude | safety: only exact checks set a statement aside; the AI fact check only marks it |
@@ -168,5 +170,4 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 | 2026-10-24 | Aktanbekov | ui: calmer brief, lawyer list and portal; one Granite build at a time |
 | 2026-10-24 | Claude | ai: show IBM's error body when the watsonx chat self-check fails |
 | 2026-10-23 | Aktanbekov | Shared lawyer database, delete my case, data panel, Granite tuned on a real run |
-| 2026-10-23 | Aktanbekov | ingest: read form-style PDFs one field per sentence, explain scanned PDFs |
 <!-- AUTO:CHANGELOG:END -->
