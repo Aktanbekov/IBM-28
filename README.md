@@ -7,9 +7,9 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-24 04:29 (commit `d304a94`) |
-| Tests | passing (625 passed) |
-| Commits | 129 |
+| Last updated | 2026-10-24 05:03 (commit `064be9e`) |
+| Tests | passing (627 passed) |
+| Commits | 132 |
 | Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Nurislam, Shahzod Bakhriev |
 <!-- AUTO:STATUS:END -->
 
@@ -161,6 +161,7 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 
 | Date | Author | Change |
 |---|---|---|
+| 2026-10-24 | Aktanbekov | ui: show Maria's demo photos next to their descriptions |
 | 2026-10-24 | Aktanbekov | data: read photos with OpenAI vision instead of Claude |
 | 2026-10-24 | Aktanbekov | safety: let spelled-out numbers support digits; test watsonx retries |
 | 2026-10-24 | Aktanbekov | ai: share one watsonx retry helper and tighten the groundedness prompt |
@@ -171,5 +172,4 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 | 2026-10-24 | Claude | ui: show statements marked for a second look in the trust strip |
 | 2026-10-24 | Claude | ai: keep fact-check doubts in the brief, ask the watsonx checker about new facts only |
 | 2026-10-24 | Claude | safety: only exact checks set a statement aside; the AI fact check only marks it |
-| 2026-10-24 | Claude | ui: list set-aside statements under How it was checked and in the trust strip |
 <!-- AUTO:CHANGELOG:END -->
