@@ -52,7 +52,17 @@ CHECKLIST = {
     "premises": [
         ("Photos of the hazard", "photo", []),
         ("Incident report from the property", "document", ["incident report"]),
+        # Stores often record over camera footage within days, so this is time-sensitive.
+        ("Request to keep the security camera footage", None, ["footage", "camera", "cctv", "video"]),
         ("Medical records", "document", ["diagnosis", "discharge", "medical"]),
+        ("Witness contact information", None, ["witness"]),
+    ],
+    "dog_bite": [
+        ("Photos of the injuries", "photo", []),
+        ("Medical records", "document", ["diagnosis", "discharge", "medical", "urgent care"]),
+        ("Animal control or bite report", "document", ["animal control", "bite report"]),
+        ("Dog owner's name and contact details", None, ["owner"]),
+        ("Dog's vaccination records", None, ["vaccin", "rabies"]),
         ("Witness contact information", None, ["witness"]),
     ],
 }
@@ -203,8 +213,23 @@ def deadlines(evidence: list[Evidence], case_type: str) -> list[dict]:
     return out
 
 
+# The client asking us for a decision ("Should I sign?"). We answer honestly that we can't,
+# and point to what we can do. Only the client's own words count (notes and voice memos).
+ADVICE_QUESTION_RE = re.compile(
+    r"\b(should i|do i have to|must i|is it (a )?good idea to) (sign|accept|settle|take|reject|sue)\b|"
+    r"\bis (this|it|that) a (good|fair|bad) (offer|deal|settlement)\b|"
+    r"\bhow much is my (case|claim) worth\b|"
+    r"\b(debo|deber[ií]a) (firmar|aceptar)\b", re.I)
+
+
 def warnings(evidence: list[Evidence]) -> list[str]:
     out = []
+    for ev in evidence:
+        if ev.kind in ("note", "voice") and ADVICE_QUESTION_RE.search(ev.text):
+            out.append(f"You asked for a decision [{ev.id}]. CaseBridge can't answer that, because "
+                       "it would be legal advice. What it can do: explain what the documents ask and "
+                       "by when, and help you choose a lawyer to look at it first. Many offer a free "
+                       "first consultation.")
     for ev in evidence:
         low = ev.text.lower()
         if "release" in low and ("settlement" in low or "sign" in low):
@@ -392,6 +417,15 @@ EVIDENCE_TIPS = {
         "cameras, but footage is often erased within days, so ask soon.",
     "Proof of lost wages (pay stubs / employer letter)": "Keep your pay stubs, or ask your "
         "employer for a short letter listing the days you missed and your pay.",
+    "Request to keep the security camera footage": "Ask the store or property in writing, soon, "
+        "to keep the camera video of that day. Many systems erase it within days or weeks.",
+    "Photos of the injuries": "Photograph the bite or wound every few days as it heals.",
+    "Animal control or bite report": "Ask your city or county animal control for a copy of the "
+        "bite report. Clinics often file one automatically.",
+    "Dog owner's name and contact details": "Write down the owner's name and how to reach them, "
+        "and the dog's name if you know it.",
+    "Dog's vaccination records": "Animal control can usually confirm whether the dog's rabies "
+        "vaccination is current. Tell your doctor what you learn.",
     "Incident report from the property": "Ask the store or property manager in writing for a "
         "copy. Write down who you asked and when, even if they say no.",
 }
