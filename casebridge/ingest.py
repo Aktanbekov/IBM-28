@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -37,6 +38,27 @@ _whisper_error: Exception | None = None   # remembered so a missing model doesn'
 
 MAX_PDF_PAGES = 50   # a brief needs a few pages; a 5,000-page upload would stall the app
 
+# A form line ("Report number: SJ-2026-104233") or a heading ("TRAFFIC COLLISION REPORT") is complete on
+# its own line; any other line that doesn't end a sentence is prose wrapped by the PDF layout.
+_FIELD_LINE = re.compile(r"^[A-Z][\w /#&().'-]{0,40}:\s*\S")
+_HEADING_LINE = re.compile(r"^[^a-z]*[A-Z]{3}[^a-z]*$")
+
+
+def _reflow(text: str) -> str:
+    """PDF lines -> sentences: form fields and headings get their own sentence, wrapped prose is rejoined.
+    Without this, every line up to the first full stop becomes one "fact"."""
+    out: list[str] = []
+    for line in (l.strip() for l in text.splitlines()):
+        if not line:
+            continue
+        if out and not out[-1].endswith((".", "!", "?", ":")) and not _FIELD_LINE.match(line) \
+                and not _HEADING_LINE.match(line) and not _FIELD_LINE.match(out[-1]) \
+                and not _HEADING_LINE.match(out[-1]):
+            out[-1] += " " + line           # a wrapped line: same sentence
+        else:
+            out.append(line)
+    return "\n".join(l if l.endswith((".", "!", "?")) else l + "." for l in out)
+
 
 def pdf_text(data: bytes) -> str:
     try:
@@ -46,12 +68,15 @@ def pdf_text(data: bytes) -> str:
     try:   # a damaged, encrypted or hostile PDF must not crash the app
         reader = PdfReader(io.BytesIO(data))
         pages = reader.pages[:MAX_PDF_PAGES]
-        text = "\n".join(page.extract_text() or "" for page in pages).strip()
+        text = "\n".join(page.extract_text() or "" for page in pages)
     except Exception as exc:
-        return f"[Could not read this PDF ({type(exc).__name__}). Please type what it says.]"
+        return f"[Could not read this PDF ({type(exc).__name__}). Please type the key details as a note.]"
+    if not text.strip():
+        return "[No text found in this PDF. It may be a scanned image. Please type the key details as a note.]"
+    text = _reflow(text)
     if len(reader.pages) > MAX_PDF_PAGES:
         text += f"\n[Only the first {MAX_PDF_PAGES} pages were read.]"
-    return text or "[No text found in this PDF. If it is a scan, please type what it says.]"
+    return text
 
 
 def _load_whisper():
