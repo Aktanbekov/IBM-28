@@ -98,8 +98,10 @@ def voice_evidence(data: bytes, file_name: str) -> Evidence:
     """Build a voice Evidence item. The title records the original language, which the brief
     uses to set the client's languages (see brief.build)."""
     text, language = transcribe(data, file_name)
-    if language is None:
+    if language is None and text.startswith("["):
         title = f"Voice memo {file_name} (needs a typed transcript)"
+    elif language is None:
+        title = f"Voice memo {file_name} (transcribed, language unclear)"
     elif language == "English":
         title = f"Voice memo {file_name} (transcribed)"
     else:

@@ -203,3 +203,14 @@ def test_bilingual_client_sees_everyone_with_shared_language_ranked_up():
     results, excluded = matching.match("premises", "plaintiff", "Alameda", ["Spanish", "English"])
     assert excluded["language"] == 0
     assert results[0]["id"] == "L13" and "Speaks Spanish" in results[0]["why"]
+
+
+def test_unclear_language_still_counts_as_transcribed(monkeypatch):
+    monkeypatch.setattr(ingest, "transcribe", lambda data, name: ("Some words.", None))
+    assert "language unclear" in ingest.voice_evidence(b"x", "memo.m4a").title
+
+
+def test_names_match_any_case_but_everyday_words_stay():
+    names = {"Rosa Martinez": "[CLIENT]", "Will": "[PERSON]"}
+    out = safety.redact("ROSA MARTINEZ said she will call. Will agreed.", names)
+    assert out == "[CLIENT] said she will call. [PERSON] agreed."
