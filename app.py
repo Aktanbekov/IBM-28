@@ -354,7 +354,7 @@ def once(facts: list, seen: set[str]) -> list:
 
 
 CHECK_WARNINGS = ("Removed", "Blocked", "Flagged", "Fact check", "The fact check", "Set aside", "Granite's summary")
-CHECK_ORDER = ["sources", "numbers", "conclusions", "guardian", "summary", "advice", "set_aside"]
+CHECK_ORDER = ["sources", "numbers", "claims", "conclusions", "guardian", "summary", "advice", "set_aside"]
 
 
 def fool_the_checks(b, ev_by_id: dict) -> str:
@@ -400,7 +400,7 @@ def show_checks(b, ev_by_id: dict):
     checker = llm.checker()
     writer = "rules on this computer" if b.engine == "rules" else f"IBM Granite ({llm.model_name()}) via {b.engine}"
     foot = (f"<b>Written by</b> {esc(writer)}. <b>Checked by</b> rules"
-            + (f" and {esc(checker)}" if checker else "") + ". A number or fault word that isn't in the evidence "
+            + (f" and {esc(checker)}" if checker else "") + ". A number, injury, damage or fault word that isn't in the evidence "
             "gets its statement set aside and listed here. A statement the AI fact check doubts stays in the "
             "brief, marked, so you and your lawyer decide.")
     aside = next((c.get("items", []) for c in checks if c["id"] == "set_aside"), [])
