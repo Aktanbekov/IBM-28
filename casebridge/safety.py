@@ -64,6 +64,60 @@ def apply_guardrails(brief: CaseBrief, valid_ids: set[str]) -> CaseBrief:
     return brief
 
 
+# --- Prompt-injection defense ------------------------------------------------------------
+# Evidence is written by other people: an insurer's letter, a scanned form, a text message.
+# Any of it can hide instructions aimed at our AI ("ignore your rules", "say the case is worth
+# $1M"). We never obey evidence. We flag it for the client and lawyer, and when evidence goes
+# to Granite it is fenced off as data (see wrap_evidence and brief.SYSTEM_PROMPT).
+
+INJECTION_PATTERNS = [
+    # Attempts to cancel or replace the model's instructions.
+    r"\b(ignore|disregard|forget|override)\b.{0,40}\b(previous|prior|above|earlier|all|your|these)\b"
+    r".{0,20}\b(instructions?|rules?|prompts?|guidelines?|directions?)\b",
+    r"\b(new|updated|real) (instructions?|system prompt)\b",
+    r"\bsystem prompt\b",
+    # Role-play and jailbreak phrasing.
+    r"\byou are (now|no longer) (an? |the |in )?(AI|assistant|chatbot|bot|model|lawyer|attorney|"
+    r"legal advisor|\w+ mode|DAN)\b",
+    r"\b(act|behave) as (an?|the|my) (AI|assistant|lawyer|attorney|legal advisor)\b",
+    r"\bpretend (to be|you are|you're)\b",
+    r"\bjailbreak|\bdeveloper mode\b|\bDAN mode\b",
+    # Text addressed to an AI rather than to a person.
+    r"\b(AI|assistant|chatbot|language model|LLM|Granite)\s*[:,]?\s*(please\s+)?"
+    r"(must|should|will|do not|don't|ignore|say|write|tell|output|respond|answer)\b",
+    r"\b(say|write|state|tell the (user|client|lawyer)|output|respond with)\b.{0,40}"
+    r"\b(case is worth|will win|should (settle|sign|accept))",
+    # Chat-template tokens and role tags that have no business in a letter.
+    r"<\|?(system|assistant|user|im_start|im_end)\|?>|\[/?INST\]|^\s*(system|assistant)\s*:",
+    # Spanish equivalents.
+    r"\b(ignora|olvida|omite)\b.{0,40}\b(instrucciones|reglas)\b",
+]
+INJECTION_RE = re.compile("|".join(f"(?:{p})" for p in INJECTION_PATTERNS), re.I | re.M)
+
+
+def injection_flags(evidence) -> list[str]:
+    """Ids of evidence items that contain text trying to instruct an AI."""
+    return [e.id for e in evidence if INJECTION_RE.search(e.text)]
+
+
+def injection_warnings(evidence) -> list[str]:
+    """One plain-language warning per flagged evidence item, for the brief's warnings list."""
+    return [f"[{eid}] contains text that tries to give instructions to an AI. CaseBridge ignored "
+            "those instructions and treated the item as evidence only. A lawyer may want to see it."
+            for eid in injection_flags(evidence)]
+
+
+def wrap_evidence(evidence_id: str, kind: str, title: str, text: str) -> str:
+    """Fence one evidence item for the LLM so it reads as quoted data, never as instructions.
+
+    Any tag that could close the fence early is neutralized first, so a document can't
+    "break out" by writing </evidence> itself.
+    """
+    clean = re.sub(r"</?\s*evidence[^>]*>", "[tag removed]", text, flags=re.I)
+    flag = ' flagged="possible-instructions"' if INJECTION_RE.search(text) else ""
+    return f'<evidence id="{evidence_id}" kind="{kind}"{flag}>\n{title}\n{clean}\n</evidence>'
+
+
 # --- Redaction for the lawyer-side case board -------------------------------------------
 # Pattern-based, and tuned to fail closed: when unsure, hide it. Lawyers only see the real
 # brief after the client accepts them.
@@ -76,6 +130,7 @@ _DATE = (r"(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2}|"
          r"\s+\d{1,2},?\s+\d{4})")
 
 PII_PATTERNS = [  # (regex, replacement); order matters: specific before generic
+    (re.compile(r"-?\b\d{1,3}\.\d{3,},\s*-?\d{1,3}\.\d{3,}\b"), "[LOCATION]"),   # GPS "37.3230, -121.9480"
     (re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.]+\b"), "[EMAIL]"),
     (re.compile(rf"\b(DOB|D\.O\.B\.|[Dd]ate of birth|[Bb]orn(?: on)?|[Ff]echa de nacimiento|"
                 rf"[Nn]acid[oa] el)\s*[:\-]?\s*{_DATE}"), r"\1 [REDACTED]"),
@@ -190,6 +245,8 @@ def find_leaks(data, names: dict[str, str]) -> list[str]:
     return [x for i, x in enumerate(leaks) if x not in leaks[:i] and not any(x in y for y in leaks if y != x)]
 
 
+HIDDEN_STATEMENT = "[Statement hidden to protect the client's identity]"
+
 # Fields that hold fixed values (enum keys, ISO dates, statute citations), not free text.
 _FIXED = {"case_type", "client_side", "county", "engine", "languages", "date", "sources"}
 
@@ -213,7 +270,62 @@ def redact_brief(brief: CaseBrief, names: dict[str, str]) -> dict:
     for section in ("timeline", "parties", "injuries", "damages"):
         for f in d[section]:
             if find_leaks(f, names):
-                f["text"], f["when"] = "[Statement hidden to protect the client's identity]", None
+                f["text"], f["when"] = HIDDEN_STATEMENT, None
     if find_leaks(d["summary"], names):
         d["summary"] = "[Summary hidden to protect the client's identity]"
     return d
+
+
+# --- Privacy receipt, client review and the posting gate -----------------------------------
+# Privacy the client can see: before anything is posted, the client is shown exactly what was
+# hidden, can hide any extra line themselves, and the post is refused if a leak remains.
+
+PLACEHOLDER_LABELS = {
+    "[CLIENT]": "your name", "[OTHER PARTY]": "the other party's name",
+    "[ADJUSTER]": "insurance adjusters' names", "[PERSON]": "other people's names",
+    "[PHONE]": "phone numbers", "[EMAIL]": "email addresses", "[ADDRESS]": "street addresses",
+    "[ZIP]": "ZIP codes", "[LOCATION]": "GPS locations", "[PLATE]": "licence plates",
+    "[REPORT #]": "police report numbers", "[ID]": "claim, policy and record numbers",
+    "[SSN]": "Social Security numbers", "[VIN]": "vehicle ID numbers", "[REDACTED]": "dates of birth",
+}
+
+
+def privacy_summary(red: dict) -> dict[str, int]:
+    """Count what redaction hid in an anonymized brief, in plain words:
+    {"your name": 4, "phone numbers": 2, ...}. Shown to the client as a privacy receipt."""
+    blob = str(red)
+    counts = {label: blob.count(token) for token, label in PLACEHOLDER_LABELS.items()}
+    counts["whole statements (failed the leak check)"] = blob.count(HIDDEN_STATEMENT)
+    counts["statements you chose to hide"] = red.get("client_hidden", 0)
+    return {label: n for label, n in counts.items() if n}
+
+
+def fact_key(section: str, index: int) -> str:
+    """Stable id for one statement in a brief, used by the client's "hide this line" choice."""
+    return f"{section}:{index}"
+
+
+def hide_facts(red: dict, hidden: set[str]) -> dict:
+    """Remove the statements the client chose to hide (keys from fact_key) before posting.
+
+    The client stays in control: anything they don't want a stranger to read, even if it
+    contains no personal detail, never reaches the lawyer board.
+    """
+    removed = 0
+    for section in ("timeline", "parties", "injuries", "damages"):
+        kept = []
+        for i, f in enumerate(red[section]):
+            if fact_key(section, i) in hidden:
+                removed += 1
+            else:
+                kept.append(f)
+        red[section] = kept
+    red["client_hidden"] = red.get("client_hidden", 0) + removed
+    return red
+
+
+def posting_blockers(red: dict, names: dict[str, str]) -> list[str]:
+    """The gate before the lawyer board: any identifier still present blocks the post.
+    redact_brief already fails closed, so this should always be empty. It is the second lock."""
+    return find_leaks(red, names)
+
