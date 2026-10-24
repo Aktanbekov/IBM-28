@@ -1,0 +1,5 @@
+kind: document
+title: Letter from Coastal Shield Insurance requesting recorded statement
+file: coastal_shield_letter_oct17.pdf
+---
+Dear Ms. Nguyen, this is Patricia Vo, claims adjuster with Coastal Shield Insurance. Claim number CS-7723041. We are writing regarding the incident on October 14, 2026 at Story Road and McLaughlin Avenue, San Jose. We would like to schedule a recorded statement with you as soon as possible. To resolve this quickly we can offer $2,500 if you sign the release and return it by November 28, 2026. Please call me at (408) 555-0193 to arrange this. You do not need a lawyer to resolve this claim.

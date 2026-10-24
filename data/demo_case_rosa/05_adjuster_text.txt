@@ -1,0 +1,5 @@
+kind: note
+title: Text messages from the store's insurance adjuster
+file: screenshot_texts.png
+---
+Hi Rosa, this is Brian Cole, claims adjuster with Harborline Claims Services for FreshWay Market. Claim number HC-55190. We would like to take a recorded statement about your fall at the store. To resolve this quickly we can offer $750 if you sign the release and return it by November 6, 2026. Call me back at 925-555-0161.

@@ -18,6 +18,7 @@ class Fact:
     text: str
     sources: list[str]  # evidence ids, e.g. ["E1", "E3"]
     when: str | None = None
+    guardian_flags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -34,7 +35,17 @@ class CaseBrief:
     deadlines: list[dict] = field(default_factory=list)
     languages: list[str] = field(default_factory=lambda: ["English"])
     warnings: list[str] = field(default_factory=list)
+    # Insurer tactics found in the evidence (rules.insurer_alerts):
+    # {"title", "meaning", "ask", "sources"}. Explanations only, never advice.
+    alerts: list[dict] = field(default_factory=list)
+    # Places where two pieces of evidence disagree (rules.contradictions):
+    # {"topic", "text", "sources"}, so a lawyer can clarify them early.
+    contradictions: list[dict] = field(default_factory=list)
     engine: str = "rules"
+    summary_guardian_flags: list[str] = field(default_factory=list)
+    # How the brief was checked, one entry per check, for the UI's report:
+    # {"id": "sources"|"numbers"|"guardian"|"advice", "name", "status": "pass"|"flag"|"skip", "detail"}
+    checks: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -1,0 +1,15 @@
+kind: document
+title: Emergency room visit summary - Valley Medical Center
+file: er_summary_VMC.pdf
+---
+Patient: Nguyen Thi Bao, DOB 02/27/1953, MRN: 30917452. Arrived by ambulance October 14, 2026, 09:42. Chief complaint: left hip pain and right shoulder pain after being struck by a vehicle in a crosswalk.
+
+Examination: Tenderness over left greater trochanter and right acromioclavicular joint. Patient is alert and cooperative. Communicates through granddaughter interpreting Vietnamese.
+
+Imaging: X-ray of left hip: non-displaced fracture of the left greater trochanter. X-ray of right shoulder: no fracture identified; soft tissue swelling consistent with contusion and possible rotator cuff strain. CT left hip ordered to rule out additional injury.
+
+Diagnosis: (1) Non-displaced fracture, left greater trochanter. (2) Right shoulder contusion, rule out rotator cuff tear.
+
+Treatment: Pain management initiated. Non-weight bearing left leg. Orthopedic referral placed. Patient admitted for observation overnight.
+
+Attending physician: Dr. Sandra Ellison. Discharge expected October 15, 2026. Follow up with orthopedics in five to seven days.

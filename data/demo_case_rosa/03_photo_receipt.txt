@@ -1,0 +1,5 @@
+kind: photo
+title: Photo - store receipt
+file: IMG_2212.jpg
+---
+Photo of a FreshWay Market receipt dated October 9, 2026, 11:02 am, store #318, Mowry Avenue, Fremont. Loyalty member number 4417-2290-31 printed at the bottom.

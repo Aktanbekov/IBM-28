@@ -1,0 +1,53 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/canon.html"
+        ],
+        "createdAt": "2026-10-24T01:34:26.410Z",
+        "reason": "Claude: canon card deliberately renders the category default (Inter) for comparison; throwaway decision sketch"
+      },
+      {
+        "rule": "overused-font",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/challenger-claim-proof.html"
+        ],
+        "createdAt": "2026-10-24T01:34:26.433Z",
+        "reason": "Claude: sketch of the dealt monochrome-product-marketing world, whose grammar is a geometric SaaS sans; throwaway decision sketch"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/model-pick.html"
+        ],
+        "createdAt": "2026-10-24T02:11:13.110Z",
+        "reason": "Claude: unchosen decision-round sketch that renders an alternate direction's own font by design; not shipping UI"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/challenger-claim-proof.html"
+        ],
+        "createdAt": "2026-10-24T02:11:13.134Z",
+        "reason": "Claude: unchosen decision-round sketch that renders an alternate direction's own font by design; not shipping UI"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/canon.html"
+        ],
+        "createdAt": "2026-10-24T02:11:13.158Z",
+        "reason": "Claude: unchosen decision-round sketch that renders an alternate direction's own font by design; not shipping UI"
+      }
+    ]
+  }
+}

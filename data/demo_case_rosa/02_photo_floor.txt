@@ -1,0 +1,5 @@
+kind: photo
+title: Photo - produce aisle floor
+file: IMG_2210.jpg
+---
+Photo taken October 9, 2026 in the produce aisle. Puddle of orange liquid and pieces of broken glass on the floor. No wet floor sign or cone visible in the aisle.
