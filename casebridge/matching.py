@@ -12,16 +12,27 @@ def load_lawyers() -> list[dict]:
     return json.loads(LAWYERS_FILE.read_text())
 
 
+def speaks_with(client_languages: list[str], lawyer_languages: list[str]) -> bool:
+    """Language is a hard filter only when the client doesn't speak English: a lawyer they
+    can't talk to can't take their case. Bilingual clients see everyone, Spanish speakers ranked up."""
+    if not client_languages or "English" in client_languages:
+        return True
+    return any(l in lawyer_languages for l in client_languages)
+
+
 def match(case_type: str, side: str, county: str | None, languages: list[str],
           lawyers: list[dict] | None = None) -> tuple[list[dict], dict]:
     lawyers = lawyers if lawyers is not None else load_lawyers()
-    results, excluded = [], {"practice_area": 0, "side": 0}
+    results, excluded = [], {"practice_area": 0, "side": 0, "language": 0}
     for lw in lawyers:
         if case_type not in lw["practice_areas"]:
             excluded["practice_area"] += 1
             continue
         if side not in lw["sides"]:
             excluded["side"] += 1
+            continue
+        if not speaks_with(languages, lw["languages"]):
+            excluded["language"] += 1
             continue
         score, why = 5.0, [f"Handles {case_type.replace('_', ' ')} cases",
                            f"Represents the {side} side"]
