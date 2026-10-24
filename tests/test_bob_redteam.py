@@ -2,9 +2,9 @@
 
 Each test plays the role of an attacker trying to get a client's identity onto the
 lawyer board through redact() or redact_brief().  Tests assert the secret is NOT
-present in the output.  Tests expected to pass the current code use no marker;
-tests expected to reveal a gap use pytest.mark.xfail with an explanation so
-`pytest -q` stays green and every failure is documented.
+present in the output.  Bob first marked the 30 tests that exposed a gap as xfail.
+We then fixed safety.py for every one of them and removed the marks, so all of these
+are normal tests now (see also tests/test_redteam_fixes.py).
 
 Naming convention:  test_rt_<category>_<NN>_<short_description>
 """
@@ -47,8 +47,6 @@ class TestOCRNameSubstitution:
     If a scanned form comes in with 'Mar1a L0pez', 'Mar1a' is never placed in the
     names dict (digits are not in _WORD) and therefore survives redaction."""
 
-    @pytest.mark.xfail(reason="'Mar1a' contains a digit; _WORD requires [a-z…] chars only, "
-                               "so find_names never detects it as a name.")
     def test_rt_ocr_01_digit_i_in_first_name(self):
         """OCR reads 'Maria' as 'Mar1a' (digit 1 for i)."""
         names = _names("My name is Maria Lopez.")
@@ -56,22 +54,18 @@ class TestOCRNameSubstitution:
         out = _r("Mar1a Lopez called at 5pm.", names)
         assert "Mar1a" not in out and "Lopez" not in out, f"OCR name leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="'L0pez' has a digit; _WORD never captures it, so it is never "
-                               "added to the names dict and is not substituted by redact().")
     def test_rt_ocr_02_digit_o_in_surname(self):
         """OCR reads 'Lopez' as 'L0pez' (digit 0 for o)."""
         names = _names("My name is Maria Lopez.")
         out = _r("L0pez was involved in the incident.", names)
         assert "L0pez" not in out, f"OCR surname leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="'M4rtinez' (4 for a) has a digit; same gap as above.")
     def test_rt_ocr_03_digit_a_in_surname(self):
         """OCR reads 'Martinez' as 'M4rtinez'."""
         names = _names("My name is Rosa Martinez.")
         out = _r("M4rtinez signed the form.", names)
         assert "M4rtinez" not in out, f"OCR surname leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="'R0sa' has a digit; same gap.")
     def test_rt_ocr_04_digit_o_in_first_name(self):
         """OCR reads 'Rosa' as 'R0sa'."""
         names = _names("My name is Rosa Martinez.")
@@ -103,8 +97,6 @@ class TestInitialsAndPartialNames:
         out = _r("Dear R. Martinez, please sign the form.", names)
         assert "Martinez" not in out, f"Surname after initial leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="Nicknames are never in the names dict. 'Rosie' as a nickname for "
-                               "Rosa Martinez is not detectable without semantic knowledge.")
     def test_rt_initial_03_nickname_not_redacted(self):
         """Client uses their nickname in a voice memo."""
         names = _names("My name is Rosa Martinez.")
@@ -157,11 +149,6 @@ class TestNameSplitAcrossLines:
 class TestPhoneObfuscation:
     """Attackers embed phone numbers in ways the regex doesn't anticipate."""
 
-    @pytest.mark.xfail(reason="The spelled-out digit pattern requires 7+ pure word-number tokens "
-                               "with [\\s,-]+ separators. 'four0eight' mixes a digit in, so it "
-                               "is not matched by the word-number pattern, and '4085550142' is "
-                               "only 10 digits which the full-number regex does catch — but "
-                               "the hybrid 'four0eight' token itself is not caught.")
     def test_rt_phone_01_mixed_word_digit_area_code(self):
         """Area code uses a mixed word-digit token to evade both patterns."""
         out = _r("Call me at four0eight 555-0142 anytime.", {})
@@ -210,23 +197,16 @@ class TestPhoneObfuscation:
 class TestEmailObfuscation:
     """Standard email pattern is `[\\w.+-]+@[\\w-]+\\.[\\w.]+`."""
 
-    @pytest.mark.xfail(reason="A space before '@' breaks the regex: [\\w.+-]+ must be followed "
-                               "immediately by '@'. 'rosa @ mail.example.com' has spaces around "
-                               "the at-sign and is not matched.")
     def test_rt_email_01_space_around_at_sign(self):
         """Email typed with spaces around the at-sign."""
         out = _r("Email me at rosa @ mail.example.com please.", {})
         assert "rosa" not in out or "mail.example.com" not in out, f"Spaced email leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="The Unicode full-width at-sign '＠' (U+FF20) is not the ASCII "
-                               "'@' (U+0040) that the regex matches literally.")
     def test_rt_email_02_fullwidth_at_sign(self):
         """Email uses a Unicode full-width '@' character."""
         out = _r("Contact: rosa.m＠mail.example.com", {})
         assert "rosa.m" not in out, f"Unicode-at email leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="'(at)' spelled out instead of '@' is a common obfuscation. "
-                               "The regex requires a literal '@' and does not handle '(at)'.")
     def test_rt_email_03_at_spelled_out(self):
         """Email uses '(at)' instead of '@'."""
         out = _r("Reach me: rosa.m(at)mail.example.com", {})
@@ -245,25 +225,16 @@ class TestEmailObfuscation:
 class TestAddressEvasion:
     """The street address regex requires a street-type suffix word (St, Ave, etc.)."""
 
-    @pytest.mark.xfail(reason="The address regex requires a suffix keyword (St|Street|Ave|...). "
-                               "'4120 Peralta, Fremont' has no suffix so it is not matched.")
     def test_rt_addr_01_no_street_suffix(self):
         """Address written without a street suffix word."""
         out = _r("I live at 4120 Peralta, Fremont, CA.", {})
         assert "4120 Peralta" not in out, f"No-suffix address leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="'P.O. Box 1234' has no number+StreetName+Suffix structure "
-                               "and no Apt/Unit/# keyword; it is not matched by any PII pattern.")
     def test_rt_addr_02_po_box(self):
         """Client receives mail at a PO Box."""
         out = _r("Send documents to P.O. Box 1234, San Jose, CA 95101.", {})
         assert "1234" not in out or "Box" not in out, f"PO Box leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="The address regex anchor is \\b\\d{1,6}\\s+[NSEW]?... requiring "
-                               "the house number to start at a word boundary. A non-standard "
-                               "separator like a tab character breaks the \\s+ inside the pattern "
-                               "if the tab is between number and street name — actually \\s+ "
-                               "includes \\t, so this may pass. Marking xfail to verify.")
     def test_rt_addr_03_number_only_no_street_name(self):
         """Only the house number is present, no street name."""
         out = _r("I live at 4120, apartment 12, Fremont.", {})
@@ -299,30 +270,21 @@ class TestDOBFormats:
     """_DATE handles MM/DD/YYYY, YYYY-MM-DD, and long-form 'Month DD, YYYY'.
     European (DD.MM.YYYY) and year-only mentions are not covered."""
 
-    @pytest.mark.xfail(reason="European date format DD.MM.YYYY uses dots as separators. "
-                               "_DATE only handles [/-] as numeric separators, not '.'.")
     def test_rt_dob_01_european_dot_format(self):
         """DOB in European format: 08.03.1984."""
         out = _r("Date of birth: 08.03.1984", {})
         assert "1984" not in out, f"European DOB leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="A year appearing alone ('born in 1984') is not in _DATE. "
-                               "There is no year-only pattern in PII_PATTERNS.")
     def test_rt_dob_02_year_only(self):
         """Only the year is mentioned (e.g. in an employment record)."""
         out = _r("Employee born in 1984, hired 2010.", {})
         assert "1984" not in out, f"Year-only DOB leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="'DOB: March 1984' (month + year, no day) is not matched by "
-                               "_DATE's long-form pattern which requires 'Month DD, YYYY'.")
     def test_rt_dob_03_month_year_no_day(self):
         """DOB listed as month and year only."""
         out = _r("DOB: March 1984", {})
         assert "1984" not in out, f"Month+year DOB leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="'nacida en 08/03/1984' uses 'nacida en' (feminine past participle "
-                               "of 'nacer') which is not in the DOB keyword list. 'nacida el' "
-                               "IS in the pattern but 'nacida en' is not.")
     def test_rt_dob_04_spanish_nacida_en(self):
         """Spanish DOB phrasing with 'nacida en' (not 'nacida el')."""
         out = _r("nacida en 08/03/1984 en Guadalajara.", {})
@@ -333,10 +295,6 @@ class TestDOBFormats:
         out = _r("Date of birth: 03/08/1984", {})
         assert "1984" not in out, f"Standard DOB leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="'d.o.b.' with periods after each letter is not matched by "
-                               "D\\.O\\.B\\. (which matches the exact three-letter form). "
-                               "'d.o.b.' is lowercase; the pattern uses case-insensitive mode "
-                               "but let's verify it handles 'd.o.b.' (with trailing dot).")
     def test_rt_dob_06_dob_with_trailing_period(self):
         """'d.o.b.:' typed with an extra period at the end."""
         out = _r("d.o.b.: 03/08/1984", {})
@@ -350,30 +308,21 @@ class TestDOBFormats:
 class TestIDFormatVariations:
     """Regex patterns for plates and VINs use uppercase character classes."""
 
-    @pytest.mark.xfail(reason="The CA plate regex \\b\\d[A-Z]{3}\\d{3}\\b requires uppercase "
-                               "letters. '7xyz456' (lowercase) is not matched.")
     def test_rt_id_01_lowercase_plate(self):
         """Plate number written in lowercase."""
         out = _r("Plate number: 7xyz456.", {})
         assert "7xyz456" not in out, f"Lowercase plate leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="The VIN regex [A-HJ-NPR-Z0-9]{17} requires uppercase. "
-                               "A lowercase VIN is not matched.")
     def test_rt_id_02_lowercase_vin(self):
         """VIN number in lowercase (as sometimes appears in OCR output)."""
         out = _r("VIN: 1hgcm82633a004352", {})
         assert "1hgcm82633a004352" not in out, f"Lowercase VIN leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="The claim-number ID pattern requires the value to start with "
-                               "[A-Z0-9] (uppercase). A value starting with a lowercase letter "
-                               "('ca-9981234') is not matched.")
     def test_rt_id_03_lowercase_policy_number(self):
         """Policy/claim number value begins with a lowercase letter."""
         out = _r("Policy number: ca-9981234.", {})
         assert "ca-9981234" not in out or "9981234" not in out, f"Lowercase policy# leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="The police report regex [A-Z]{2}-\\d{2}-\\d{4,} requires two "
-                               "uppercase letters. 'sj-26-118842' (lowercase) is not matched.")
     def test_rt_id_04_lowercase_report_number(self):
         """Police report number in lowercase (copy-paste from a web portal)."""
         out = _r("Report number: sj-26-118842.", {})
@@ -384,17 +333,11 @@ class TestIDFormatVariations:
         out = _r("Plate: 7XYZ456.", {})
         assert "7XYZ456" not in out, f"Uppercase plate leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="The plate keyword pattern requires [A-Z0-9-]{2,8} for the "
-                               "value. A mixed-case plate '7Abc234' has lowercase letters so "
-                               "the strict char class misses it. The bare plate pattern also "
-                               "requires all-uppercase for the letter portion.")
     def test_rt_id_06_mixedcase_plate(self):
         """Plate number with mixed case."""
         out = _r("Her license plate: 7Abc234 was in the photo.", {})
         assert "7Abc234" not in out, f"Mixed-case plate leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="An 8-digit claim number starting with a lowercase letter "
-                               "('hc-55190') is not matched — same root cause as test_rt_id_03.")
     def test_rt_id_07_lowercase_incident_number(self):
         """Incident/case number from a store system in lowercase."""
         out = _r("Incident number: hc-55190 filed by staff.", {})
@@ -408,24 +351,16 @@ class TestIDFormatVariations:
 class TestSSNVariations:
     """SSN pattern is \\b\\d{3}-\\d{2}-\\d{4}\\b."""
 
-    @pytest.mark.xfail(reason="SSN with spaces instead of dashes ('123 45 6789') is not matched "
-                               "by \\d{3}-\\d{2}-\\d{4} which requires hyphens specifically.")
     def test_rt_ssn_01_spaces_instead_of_dashes(self):
         """SSN written with spaces as separators."""
         out = _r("SSN: 123 45 6789", {})
         assert "123 45 6789" not in out, f"Space-separated SSN leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="SSN with dots ('123.45.6789') is not matched by the hyphen-only "
-                               "pattern.")
     def test_rt_ssn_02_dots_instead_of_dashes(self):
         """SSN written with dots as separators."""
         out = _r("Social Security: 123.45.6789", {})
         assert "123.45.6789" not in out, f"Dot-separated SSN leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="'SSN: 123456789' (no separators at all) is a 9-digit string "
-                               "that doesn't match \\d{3}-\\d{2}-\\d{4}; it could match the "
-                               "phone pattern \\d{3}[\\s.-]?\\d{3}[\\s.-]?\\d{4} partially "
-                               "(first 10 digits), but 9 digits is shorter.")
     def test_rt_ssn_03_no_separators(self):
         """SSN written as a plain 9-digit number."""
         out = _r("Social Security Number: 123456789", {})
@@ -439,15 +374,11 @@ class TestSSNVariations:
 class TestGPSFormats:
     """The GPS pattern matches '-?\\b\\d{1,3}\\.\\d{3,},\\s*-?\\d{1,3}\\.\\d{3,}\\b'."""
 
-    @pytest.mark.xfail(reason="GPS with a semicolon separator ('37.3230; -121.9480') uses ';' "
-                               "instead of ',' so it is not matched by ',\\s*' in the pattern.")
     def test_rt_gps_01_semicolon_separator(self):
         """GPS coordinates separated by a semicolon instead of a comma."""
         out = _r("Location: 37.3230; -121.9480", {})
         assert "37.3230" not in out, f"Semicolon-GPS leaked: {out!r}"
 
-    @pytest.mark.xfail(reason="GPS in DMS format ('37°19′22″N 121°57′17″W') uses degree/minute/"
-                               "second symbols and is not matched by the decimal-degrees pattern.")
     def test_rt_gps_02_dms_format(self):
         """GPS in degrees-minutes-seconds format."""
         out = _r("GPS: 37°19′22″N 121°57′17″W", {})
@@ -485,8 +416,6 @@ class TestRedactBriefSummary:
         b = _brief("Client can be reached at (408) 555-0142.", {})
         assert "555-0142" not in b["summary"], f"Phone in summary leaked: {b['summary']!r}"
 
-    @pytest.mark.xfail(reason="'Mar1a' with an OCR digit is not in the names dict and not "
-                               "matched by any PII pattern, so it survives in the summary.")
     def test_rt_brief_04_ocr_name_in_summary(self):
         """Summary contains an OCR-corrupted name."""
         names = _names("My name is Maria Lopez.")
@@ -494,9 +423,6 @@ class TestRedactBriefSummary:
         assert "Mar1a" not in b["summary"] and "L0pez" not in b["summary"], \
             f"OCR name in summary: {b['summary']!r}"
 
-    @pytest.mark.xfail(reason="A nickname 'Rosie' is never in the names dict, so it is never "
-                               "substituted even in redact_brief. find_leaks won't flag it either "
-                               "because it only checks names from the provided dict.")
     def test_rt_brief_05_nickname_in_summary(self):
         """Summary uses a nickname not present in find_names output."""
         names = _names("My name is Rosa Martinez.")
