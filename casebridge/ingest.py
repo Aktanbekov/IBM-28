@@ -210,13 +210,26 @@ def number(items: list[Evidence]) -> list[Evidence]:
     return items
 
 
+def _read_evidence_file(path: Path) -> Evidence:
+    """One demo file: "key: value" header lines, a "---" line, then the evidence text."""
+    header, _, body = path.read_text(encoding="utf-8").partition("\n---\n")
+    meta = dict(line.split(": ", 1) for line in header.strip().splitlines())
+    return Evidence(id="", kind=meta["kind"], title=meta["title"], text=body.strip(),
+                    file_name=meta.get("file"))
+
+
 def load_demo_case(name: str = "maria") -> list[Evidence]:
     """A fictional demo case from data/. "maria": voice memo, photos, police report, insurer
-    letter. "rosa": Spanish voice memo, store incident report, urgent care, adjuster text."""
-    items = []
-    for path in sorted(DEMO_CASES[name].glob("*.txt")):
-        header, _, body = path.read_text(encoding="utf-8").partition("\n---\n")
-        meta = dict(line.split(": ", 1) for line in header.strip().splitlines())
-        items.append(Evidence(id="", kind=meta["kind"], title=meta["title"],
-                              text=body.strip(), file_name=meta.get("file")))
-    return number(items)
+    letter. "rosa": Spanish voice memo, store incident report, urgent care, adjuster text.
+    "bao": Vietnamese-speaking pedestrian, police report, ER summary, insurer letter."""
+    return number([_read_evidence_file(p) for p in sorted(DEMO_CASES[name].glob("*.txt"))])
+
+
+TRICK_LETTER = DATA_DIR / "demo_extras" / "trick_letter.txt"
+
+
+def load_trick_letter() -> Evidence:
+    """A fictional insurer letter with instructions for an AI hidden in an HTML comment, to add
+    to any case in the demo. CaseBridge flags it, ignores the instructions, and blocks the
+    advice it asks for. The caller numbers it: ingest.number(evidence + [load_trick_letter()])."""
+    return _read_evidence_file(TRICK_LETTER)
