@@ -42,7 +42,7 @@ def extract_text_from_photo(image_path: str) -> str:
     )
 
     response = client.messages.create(
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-5-5",
         max_tokens=1024,
         messages=[{
             "role": "user",
@@ -126,7 +126,7 @@ def analyze_photo_text(raw_text: str) -> dict:
     )
 
     response = client.messages.create(
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-5-5",
         max_tokens=2048,
         system=ANALYSIS_SYSTEM,
         messages=[{"role": "user", "content": prompt}],

@@ -115,8 +115,14 @@ if page.startswith("1"):
                 data = up.getvalue()
                 if kind == "document" and up.name.lower().endswith(".pdf"):
                     text = ingest.pdf_text(data)
-                elif kind in ("photo", "voice"):
-                    text = captions.get(up.name) or f"[{kind} uploaded, no description yet]"
+                elif kind == "photo":
+                    with st.spinner(f"Analyzing {up.name}…"):
+                        text, kind = ingest.photo_text(data, up.name)
+                    if text.startswith("[photo uploaded, no description yet]"):
+                        # No API key — fall back to manual caption
+                        text = captions.get(up.name) or text
+                elif kind == "voice":
+                    text = captions.get(up.name) or "[voice uploaded, no description yet]"
                 else:
                     text = data.decode("utf-8", errors="ignore")
                 new.append(Evidence("", kind, up.name, text, up.name))
