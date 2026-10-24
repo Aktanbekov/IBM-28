@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from typing import Any
 
-from .models import CaseBrief, Fact
+from .models import CaseBrief, Evidence, Fact
 
 # The assistant organizes facts. It must never predict outcomes, value a case, or tell
 # the person what legal action to take.
@@ -133,12 +134,12 @@ def has_injection(text: str) -> bool:
     return bool(INJECTION_RE.search(_scan_text(text)))
 
 
-def injection_flags(evidence) -> list[str]:
+def injection_flags(evidence: list[Evidence]) -> list[str]:
     """Ids of evidence items that contain text trying to instruct an AI."""
     return [e.id for e in evidence if has_injection(e.text)]
 
 
-def injection_warnings(evidence) -> list[str]:
+def injection_warnings(evidence: list[Evidence]) -> list[str]:
     """One plain-language warning per flagged evidence item, for the brief's warnings list."""
     return [f"[{eid}] contains text that tries to give instructions to an AI. CaseBridge ignored "
             "those instructions and treated the item as evidence only. A lawyer may want to see it."
@@ -341,12 +342,14 @@ def redact(text: str, names: dict[str, str]) -> str:
     return re.sub(r"(\[[A-Z #]+\])(?:\s+\1)+", r"\1", text)   # "[CLIENT] [CLIENT]" -> "[CLIENT]"
 
 
-def find_leaks(data, names: dict[str, str]) -> list[str]:
+def find_leaks(data: Any, names: dict[str, str]) -> list[str]:
     """Final check on anything a lawyer will see: list every known name or PII pattern still present."""
     blob = ZERO_WIDTH_RE.sub("", str(data))
     leaks = [n for n in names if _name_re(n).search(blob)]
     for rx, _ in PII_PATTERNS:
+        # Skip matches that are already inside a placeholder (e.g. "[PHONE]").
         leaks += [m.group(0) for m in rx.finditer(blob) if "[" not in m.group(0)]
+    # Deduplicate and drop sub-strings already covered by a longer match.
     return [x for i, x in enumerate(leaks) if x not in leaks[:i] and not any(x in y for y in leaks if y != x)]
 
 
@@ -356,7 +359,7 @@ HIDDEN_STATEMENT = "[Statement hidden to protect the client's identity]"
 _FIXED = {"case_type", "client_side", "county", "engine", "languages", "date", "sources"}
 
 
-def _redact_all(value, names, key=None):
+def _redact_all(value: Any, names: dict[str, str], key: str | None = None) -> Any:
     if key in _FIXED:
         return value
     if isinstance(value, str):
