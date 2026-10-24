@@ -38,8 +38,7 @@ def _facts(items) -> list[Fact]:
 
 def build(evidence: list[Evidence], use_llm: bool = True) -> CaseBrief:
     brief = rules.build_brief(evidence)
-    if any(e.kind == "voice" and "spanish" in e.title.lower() for e in evidence):
-        brief.languages = ["Spanish", "English"]
+    brief.languages = rules.detect_languages(evidence)
 
     backend = llm.backend() if use_llm else "rules"
     if backend != "rules":
