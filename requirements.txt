@@ -4,3 +4,4 @@ pytest>=8.0
 faster-whisper>=1.1
 av>=11,<16  # faster-whisper 1.2 breaks on PyAV 16+ (removed metadata_errors)
 pillow>=10  # photo metadata (already installed with streamlit)
+streamlit-mic-recorder>=0.0.4  # in-browser mic recording on the intake page
