@@ -143,15 +143,13 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
   who sees it, with no referral fees. The production path is partnering with State Bar–certified
   referral services, or licensing the brief tool to law firms for intake.
 - **Photos** use the client's caption. Optional automatic photo reading sends the photo (GPS stripped first)
-  to a third-party model, OpenAI vision (`gpt-4.1`), when `OPENAI_API_KEY` is set. It is off by default
-  and not part of the IBM path. Next: Granite Vision, reading the photo's text word for word as evidence.
+  to a third-party vision model. It is off by default and not part of the IBM path. Next: Granite Vision,
+  reading the photo's text word for word as evidence.
 - **Granite Guardian runs locally** through Ollama, because IBM withdrew it from watsonx on 2026-09-30. It
   checks groundedness only; in testing the 2B model flagged quoted insurer letters as advice, so legal advice
   is caught by the rules guardrail.
-- **watsonx:** tested live (Oct 24, Dallas region, Lite plan): Granite 4 (`ibm/granite-4-h-small`) builds each
-  demo brief in about 5–13 seconds. The model is picked from IBM's live model list; rate-limit errors are
-  retried. Evidence text is sent to watsonx as written; `LLM_BACKEND=ollama` keeps everything on the laptop.
-  Without a local Guardian (for example on Streamlit Cloud), Granite on watsonx answers the groundedness check.
+- **watsonx:** the integration picks a current Granite model from IBM's live model list. If watsonx is the
+  backend, evidence text is sent to it as written; `LLM_BACKEND=ollama` keeps everything on the laptop.
 - Redaction is pattern-based. Next: a named-entity model.
 - Deadlines cover general California rules only.
 - All people, lawyers and cases in `data/` are fictional.
