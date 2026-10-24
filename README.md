@@ -7,10 +7,10 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-24 05:03 (commit `064be9e`) |
+| Last updated | 2026-10-24 09:30 (commit `cf83d11`) |
 | Tests | passing (627 passed) |
-| Commits | 132 |
-| Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Nurislam, Shahzod Bakhriev |
+| Commits | 140 |
+| Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Nurislam, Nurislam Saliev, Shahzod Bakhriev |
 <!-- AUTO:STATUS:END -->
 
 ## The problem
@@ -159,6 +159,10 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 
 | Date | Author | Change |
 |---|---|---|
+| 2026-10-24 | Aktanbekov | chore: remove duplicate ' 2' files and old Anthropic photo scripts |
+| 2026-10-24 | Aktanbekov | docs: shorten the photos and watsonx notes in Limitations |
+| 2026-10-24 | Nurislam | Add "Accept" & "Decline" buttons for lawyer |
+| 2026-10-24 | Nurislam | Add both keys, and fix bugs |
 | 2026-10-24 | Aktanbekov | ui: show Maria's demo photos next to their descriptions |
 | 2026-10-24 | Aktanbekov | data: read photos with OpenAI vision instead of Claude |
 | 2026-10-24 | Aktanbekov | safety: let spelled-out numbers support digits; test watsonx retries |
@@ -166,8 +170,4 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 | 2026-10-24 | Claude | ui: show first-person lines as quotes with who said them |
 | 2026-10-24 | Claude | ai: keep blocked evidence out of Granite and the brief; drop place-as-date and meta statements |
 | 2026-10-24 | Claude | ai: tell the watsonx checker an unreported injury or damage is a new fact |
-| 2026-10-24 | Claude | safety: set aside statements that mention an injury or damage the evidence doesn't |
-| 2026-10-24 | Claude | ui: show statements marked for a second look in the trust strip |
-| 2026-10-24 | Claude | ai: keep fact-check doubts in the brief, ask the watsonx checker about new facts only |
-| 2026-10-24 | Claude | safety: only exact checks set a statement aside; the AI fact check only marks it |
 <!-- AUTO:CHANGELOG:END -->
