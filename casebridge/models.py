@@ -18,6 +18,7 @@ class Fact:
     text: str
     sources: list[str]  # evidence ids, e.g. ["E1", "E3"]
     when: str | None = None
+    guardian_flags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -41,6 +42,7 @@ class CaseBrief:
     # {"topic", "text", "sources"}, so a lawyer can clarify them early.
     contradictions: list[dict] = field(default_factory=list)
     engine: str = "rules"
+    summary_guardian_flags: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
