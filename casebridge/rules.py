@@ -174,9 +174,22 @@ def collect(evidence: list[Evidence], predicate) -> list[Fact]:
     return facts
 
 
+# A client hit while walking has no car to repair, so the repair estimate doesn't apply.
+ON_FOOT_RE = re.compile(r"\b(pedestrian|crosswalk|on foot|walking across)\b", re.I)
+OWN_VEHICLE_RE = re.compile(r"\bmy (car|vehicle|truck|van|suv|motorcycle|bike|bicycle)\b", re.I)
+
+
+def on_foot(evidence: list[Evidence]) -> bool:
+    """True if the client was a pedestrian and never mentions a vehicle of their own."""
+    text = " ".join(e.text for e in evidence)
+    return bool(ON_FOOT_RE.search(text)) and not OWN_VEHICLE_RE.search(text)
+
+
 def missing_evidence(evidence: list[Evidence], case_type: str) -> list[str]:
     missing = []
     for label, kind, words in CHECKLIST.get(case_type, DEFAULT_CHECKLIST):
+        if label == "Written repair estimate" and on_foot(evidence):
+            continue
         pool = [e for e in evidence if kind is None or e.kind == kind]
         if label.startswith("Witness"):
             # A witness is only "covered" if we actually have a way to reach them.

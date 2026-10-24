@@ -290,13 +290,36 @@ def find_names(texts: list[str]) -> dict[str, str]:
 LOOKALIKES = {"o": "o0", "i": "i1l", "l": "l1i", "a": "a4@", "e": "e3", "s": "s5$", "b": "b8", "g": "g9", "t": "t7"}
 
 
+def _accent_variants() -> dict[str, str]:
+    """Every accented Latin letter, grouped by its plain letter: "a" -> "aàáâãäåāăą…ạảấầ…".
+
+    Names are often found in the English text ("Nguyen Thi Bao") but also appear with their
+    accents elsewhere, such as the Vietnamese original of a memo ("Nguyễn Thị Bảo").
+    """
+    groups: dict[str, set[str]] = {}
+    for cp in [*range(0xC0, 0x250), *range(0x1E00, 0x1F00)]:   # Latin-1, Extended-A/B, Additional
+        ch = chr(cp).lower()
+        base = _plain(ch)
+        if len(base) == 1 and base.isascii() and base.isalpha():
+            groups.setdefault(base, {base}).add(ch)
+    groups["d"].add("đ")   # Vietnamese d-bar has no NFKD decomposition
+    return {base: "".join(sorted(chars)) for base, chars in groups.items()}
+
+
+ACCENT_VARIANTS = _accent_variants()
+
+
 def _name_re(name: str) -> re.Pattern:
-    """Whole-name match, any case ("rosa", "ROSA") and with look-alike digits ("R0sa"),
-    except names that are everyday words, which only match exactly as written."""
+    """Whole-name match, any case ("rosa", "ROSA"), with or without accents ("Bao", "Bảo") and
+    with look-alike digits ("R0sa"), except names that are everyday words, which only match
+    exactly as written."""
     if name.lower() in COMMON_WORDS:
         return re.compile(rf"(?<![\w\[]){re.escape(name)}(?![\w\]])")
-    body = "".join(f"[{re.escape(LOOKALIKES[c])}]" if c in LOOKALIKES else re.escape(c)
-                   for c in name.lower())
+    body = ""
+    for c in name.lower():
+        base = _plain(c)
+        chars = {c} | set(ACCENT_VARIANTS.get(base, "")) | set(LOOKALIKES.get(base, ""))
+        body += f"[{re.escape(''.join(sorted(chars)))}]" if len(chars) > 1 else re.escape(c)
     return re.compile(rf"(?<![\w\[]){body}(?![\w\]])", re.I)
 
 
