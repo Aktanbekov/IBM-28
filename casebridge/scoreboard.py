@@ -37,6 +37,8 @@ def brief_stats(evidence: list[Evidence], brief: CaseBrief, red: dict | None = N
         "uncited_removed": _from_warning(brief.warnings, r"Removed (\d+) AI-generated"),
         # Statements a check found unsupported, kept out of the brief (safety.apply_guardrails).
         "set_aside": sum(len(c.get("items", [])) for c in brief.checks if c.get("id") == "set_aside"),
+        # Statements the AI fact check doubts. They stay in the brief, marked (safety.is_exact_flag).
+        "fact_check_flagged": sum(1 for f in facts if any(str(g).startswith("⚠") for g in f.guardian_flags)),
         "hidden_instructions": len(safety.injection_flags(evidence)),
         "details_hidden": sum(n for label, n in safety.privacy_summary(red).items()
                               if label != "statements you chose to hide") if red else 0,
