@@ -7,9 +7,9 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-23 22:04 (commit `31f83ba`) |
-| Tests | passing (453 passed) |
-| Commits | 74 |
+| Last updated | 2026-10-23 22:22 (commit `3afa86f`) |
+| Tests | passing (477 passed) |
+| Commits | 80 |
 | Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Shahzod Bakhriev |
 <!-- AUTO:STATUS:END -->
 
@@ -143,6 +143,7 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 
 | Date | Author | Change |
 |---|---|---|
+| 2026-10-23 | Aktanbekov | ai: live Granite Guardian fact check, current watsonx models, check report UI |
 | 2026-10-24 | Claude | ui: preview of the judge demo moments (scoreboard, build steps, trick letter, reveal) |
 | 2026-10-24 | Claude | rules: never merge two sentences whose numbers differ |
 | 2026-10-24 | Claude | docs: log Bob's stress-test session |
@@ -150,10 +151,9 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 | 2026-10-24 | Claude | engine: scoreboard numbers and redaction swaps for the demo UI |
 | 2026-10-24 | Claude | engine: fixes from the code review |
 | 2026-10-24 | Claude | data: add a trick insurer letter for the hidden-instruction demo |
+| 2026-10-23 | Aktanbekov | safety: drop filler sounds, swearing and insults from voice transcripts |
 | 2026-10-24 | Claude | rules: natural counts in the summary, no bare form times on the timeline |
 | 2026-10-24 | Claude | docs: log all 10 Bob sessions in BOB_USAGE.md |
 | 2026-10-24 | Claude | ui: add "Which language will you speak?" pills for voice memos |
 | 2026-10-24 | Claude | ingest: let the client choose the spoken language for Whisper |
-| 2026-10-24 | Claude | rules: stop deadlines crashing on month-end and Feb 29 incidents |
-| 2026-10-24 | Claude | rules: read the county from the list of California counties |
 <!-- AUTO:CHANGELOG:END -->
