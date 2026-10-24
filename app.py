@@ -353,8 +353,8 @@ def once(facts: list, seen: set[str]) -> list:
     return out
 
 
-CHECK_WARNINGS = ("Removed", "Blocked", "Flagged", "Fact check", "The fact check")
-CHECK_ORDER = ["sources", "numbers", "guardian", "advice"]
+CHECK_WARNINGS = ("Removed", "Blocked", "Flagged", "Fact check", "The fact check", "Set aside", "Granite's summary")
+CHECK_ORDER = ["sources", "numbers", "conclusions", "guardian", "summary", "advice", "set_aside"]
 
 
 def fool_the_checks(b, ev_by_id: dict) -> str:
@@ -381,7 +381,7 @@ def fool_the_checks(b, ev_by_id: dict) -> str:
     return ('<ul class="cb-list">'
             f'<li><span>{flagged(esc(invented.text), invented.guardian_flags)} {tag(first.id)}'
             f'{guardian_tags(invented.guardian_flags)}<span class="cb-caught">An invented speed. '
-            f'Caught by <b>{esc(by)}</b>. It stays marked for review.</span></span></li>'
+            f'Caught by <b>{esc(by)}</b>. It is set aside, out of the brief.</span></span></li>'
             f'<li><span><span class="cb-removed">{esc(advice.text)}</span> {tag(first.id)}'
             '<span class="cb-flag">Blocked: legal advice</span><span class="cb-caught">Advice, not a fact. '
             'Caught by <b>the legal-advice check</b>. It never reaches the brief.</span></span></li>'
@@ -400,11 +400,19 @@ def show_checks(b, ev_by_id: dict):
     checker = llm.checker()
     writer = "rules on this computer" if b.engine == "rules" else f"IBM Granite ({llm.model_name()}) via {b.engine}"
     foot = (f"<b>Written by</b> {esc(writer)}. <b>Checked by</b> rules"
-            + (f" and {esc(checker)}" if checker else "") + ". Flagged statements stay visible and marked, "
-            "so you and your lawyer decide what to trust.")
+            + (f" and {esc(checker)}" if checker else "") + ". A statement a check finds unsupported is set "
+            "aside and listed here, so you can see what was left out and why.")
+    aside = next((c.get("items", []) for c in checks if c["id"] == "set_aside"), [])
+    aside_html = ('<ul class="cb-list">' + "".join(
+        f'<li><span><span class="cb-removed">{esc(i["text"])}</span> {"".join(tag(s) for s in i["sources"])}'
+        f'{"".join(f"<span class=cb-flag>{esc(flag_label(r))}</span>" for r in i["reasons"])}</span></li>'
+        for i in aside) + "</ul>") if aside else ""
     with st.container(border=True, key="checks"):
         heading("How this brief was checked")
         st.html(f'<ul class="cb-list cb-checks">{rows}</ul><p class="cb-check-foot">{foot}</p>')
+        if aside_html:
+            label("Set aside: not in the brief, and never shown to lawyers")
+            st.html(aside_html)
         if st.button("Try to fool it: add made-up statements", key="fool", icon=":material/science:"):
             ss.fool_result = (id(b), fool_the_checks(b, ev_by_id))
         if ss.get("fool_result") and ss.fool_result[0] == id(b):
@@ -830,6 +838,7 @@ elif page.startswith("2"):
     status, _ = engine_status(b.engine)
     st.html('<div class="cb-trust">'
             f'<span><b>{stats["facts_cited"]} of {stats["facts"]}</b> statements cite your evidence</span>'
+            + (f'<span><b>{stats["set_aside"]}</b> set aside as unsupported</span>' if stats["set_aside"] else "") +
             f'<span><b>{stats["advice_given"]}</b> read as legal advice</span>'
             f'<span><b>{stats["details_hidden"]}</b> personal details hidden from lawyers</span>'
             f'<span><b>{stats["hidden_instructions"]}</b> hidden instructions</span></div>'

@@ -14,6 +14,7 @@ import os
 import re
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date
@@ -231,14 +232,24 @@ def guardian_check(user_text: str, risk_definition: str, evidence_text: str,
                         "Does the statement contain any claim, number, date or detail that the evidence "
                         "does not support?" if evidence_text.strip() else
                         f"Risk: {risk_definition}\n\nText: {user_text}\n\nDoes the text show this risk?")
-            out = _post(f"{WATSONX_URL}/ml/v1/text/chat?version={WATSONX_VERSION}",
-                        {"model_id": watsonx_model(), "project_id": os.environ["WATSONX_PROJECT_ID"],
-                         "messages": [{"role": "system", "content": "You are a strict checker. "
-                                       "Answer with exactly one word: Yes or No."},
-                                      {"role": "user", "content": question}],
-                         "max_tokens": 5, "temperature": 0},
-                        headers={"Authorization": f"Bearer {token or watsonx_token()}"}, timeout=30)
-            return _yes_no(out["choices"][0]["message"]["content"])
+            payload = {"model_id": watsonx_model(), "project_id": os.environ["WATSONX_PROJECT_ID"],
+                       "messages": [{"role": "system", "content": "You are a strict checker. "
+                                     "Answer with exactly one word: Yes or No."},
+                                    {"role": "user", "content": question}],
+                       "max_tokens": 5, "temperature": 0}
+            headers = {"Authorization": f"Bearer {token or watsonx_token()}"}
+            url = f"{WATSONX_URL}/ml/v1/text/chat?version={WATSONX_VERSION}"
+            # The Lite plan allows only a few requests per second; a 429 used to leave a statement
+            # "Not checked". Wait as asked (Retry-After) and try again, up to 3 times.
+            for attempt in range(4):
+                try:
+                    out = _post(url, payload, headers=headers, timeout=30)
+                    return _yes_no(out["choices"][0]["message"]["content"])
+                except urllib.error.HTTPError as exc:
+                    if exc.code not in (429, 503) or attempt == 3:
+                        raise
+                    retry_after = exc.headers.get("Retry-After", "") if exc.headers else ""
+                    time.sleep(min(float(retry_after), 8) if retry_after.isdigit() else 1.5 * 2 ** attempt)
     except Exception:
         return None
     return None
@@ -267,6 +278,8 @@ def _self_check() -> None:
             print(f"Chat test:    {chat('Reply with one word.', 'Say OK.', max_tokens=5, as_json=False).strip()!r}")
         except Exception as exc:
             print(f"Chat test:    FAILED ({exc})")
+            if isinstance(exc, urllib.error.HTTPError):   # IBM's body names the real cause
+                print(f"              {exc.read().decode(errors='replace')[:600]}")
     print(f"Fact checker: {checker() or 'none (citations and numbers rules only)'}")
     if not checker():
         return
