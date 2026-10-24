@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import os
+from datetime import datetime
 from pathlib import Path
 
 from .models import Evidence
@@ -107,6 +108,73 @@ def voice_evidence(data: bytes, file_name: str) -> Evidence:
     else:
         title = f"Voice memo {file_name} (transcribed, originally in {language})"
     return Evidence(id="", kind="voice", title=title, text=text, file_name=file_name)
+
+
+# --- Photo metadata -----------------------------------------------------------------------
+# Phone photos carry EXIF data: when the photo was taken, and often the exact GPS spot. The
+# time helps the timeline (a photo taken minutes after the crash backs up the story). The GPS
+# spot can reveal where someone lives, so it is written in a form the redactor recognizes and
+# it never reaches a lawyer before the client accepts them. strip_metadata() removes all of it
+# from the image itself, for whenever a photo file is shared.
+
+EXIF_IFD, GPS_IFD = 0x8769, 0x8825          # pointers to the Exif and GPS sub-directories
+DATETIME_ORIGINAL, DATETIME = 36867, 306    # "taken at" (camera), then "file changed" (fallback)
+
+
+def _gps_degrees(dms, ref) -> float:
+    """EXIF stores (degrees, minutes, seconds) as rationals; S and W are negative."""
+    deg = float(dms[0]) + float(dms[1]) / 60 + float(dms[2]) / 3600
+    return -deg if str(ref).upper() in ("S", "W") else deg
+
+
+def photo_metadata(data: bytes) -> dict:
+    """Read {"taken": datetime | None, "gps": (lat, lon) | None} from a photo. Never raises:
+    screenshots, edited photos and formats Pillow can't open simply return no metadata."""
+    meta = {"taken": None, "gps": None}
+    try:
+        from PIL import Image
+        exif = Image.open(io.BytesIO(data)).getexif()
+        raw = exif.get_ifd(EXIF_IFD).get(DATETIME_ORIGINAL) or exif.get(DATETIME)
+        if raw:
+            meta["taken"] = datetime.strptime(str(raw).strip(), "%Y:%m:%d %H:%M:%S")
+        gps = exif.get_ifd(GPS_IFD)
+        if gps.get(2) and gps.get(4):       # 1/2 = latitude ref/value, 3/4 = longitude ref/value
+            meta["gps"] = (round(_gps_degrees(gps[2], gps.get(1, "N")), 4),
+                           round(_gps_degrees(gps[4], gps.get(3, "E")), 4))
+    except Exception:
+        pass
+    return meta
+
+
+def photo_note(meta: dict) -> str:
+    """Plain-language line added to a photo's evidence text. The date is written the way the
+    rules engine reads dates, so the photo lands in the timeline."""
+    parts = []
+    if meta.get("taken"):
+        t = meta["taken"]
+        hour = t.strftime("%I:%M %p").lstrip("0").lower()
+        parts.append(f"Photo taken {t:%B} {t.day}, {t.year} at {hour} (from the photo's metadata).")
+    if meta.get("gps"):
+        lat, lon = meta["gps"]
+        parts.append(f"The photo also recorded a GPS location ({lat:.4f}, {lon:.4f}). "
+                     "Lawyers won't see it unless you accept them.")
+    return " ".join(parts)
+
+
+def strip_metadata(data: bytes) -> bytes:
+    """Return the same picture with EXIF (time, GPS, phone model) removed. Pillow only writes
+    metadata it finds in .info or is handed, so clearing .info and re-saving drops it. Unreadable files come back as-is."""
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(data))
+        fmt = img.format or "PNG"
+        clean = img.copy()          # pixels only; drop exif, GPS, text chunks and comments
+        clean.info.clear()
+        out = io.BytesIO()
+        clean.save(out, format=fmt)
+        return out.getvalue()
+    except Exception:
+        return data
 
 
 def kind_for(file_name: str) -> str:
