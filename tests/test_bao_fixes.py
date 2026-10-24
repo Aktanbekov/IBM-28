@@ -82,3 +82,44 @@ def test_leap_day_incident_does_not_crash():
     d = _deadline_dates("Date: February 29, 2028. I was rear-ended. I have neck pain.")
     assert d["Cal. Code Civ. Proc. § 335.1"] == "2030-02-28"
     assert d["Cal. Code Civ. Proc. § 338"] == "2031-02-28"
+
+
+def test_summary_counts_read_naturally():
+    s = rules.build_brief(load_demo_case("bao")).summary
+    assert "1 item a lawyer will likely ask for is missing" in s
+    assert "October 14, 2026" in s
+    maria = rules.build_brief(load_demo_case("maria")).summary
+    assert "October 2, 2026" in maria and "3 items a lawyer will likely ask for are missing" in maria
+
+
+def test_bare_form_time_is_not_a_timeline_row():
+    texts = [f.text for f in rules.build_brief(load_demo_case("bao")).timeline]
+    assert "Time: 08:53." not in texts
+    rosa = [f.text for f in rules.build_brief(load_demo_case("rosa")).timeline]
+    assert any("10:30" in t for t in rosa)   # a time inside a real sentence stays
+
+
+def _split(text):
+    return rules.sentences(Evidence(id="E1", kind="note", title="t", text=text))
+
+
+def test_street_abbreviation_mid_sentence_does_not_split():
+    assert _split("I was on Oak St. near the park. Then it happened.") == [
+        "I was on Oak St. near the park.", "Then it happened."]
+    assert _split("421 Oak St. The accident was there.") == ["421 Oak St.", "The accident was there."]
+
+
+def test_lawyer_directory_is_cached_but_each_caller_gets_a_copy():
+    from casebridge import matching
+    first = matching.load_lawyers()
+    first[0]["name"] = "changed"
+    assert matching.load_lawyers()[0]["name"] != "changed"
+    assert any("español" in str(l) for l in matching.load_lawyers())   # read as UTF-8
+
+
+def test_offers_with_different_amounts_are_not_merged():
+    from casebridge.ingest import load_trick_letter, number
+    ev = number(load_demo_case("bao") + [load_trick_letter()])
+    damages = rules.build_brief(ev).damages
+    assert [f.sources for f in damages] == [["E5"], ["E6"]]
+    assert rules._similar("I hurt my neck on October 2.", "I hurt my neck on October 2!")

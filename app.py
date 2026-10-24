@@ -6,12 +6,13 @@ from __future__ import annotations
 
 import html
 import re
+import time
 from datetime import date, datetime
 
 import streamlit as st
 
 from casebridge import brief as brief_agent
-from casebridge import ingest, llm, matching, rules, safety
+from casebridge import ingest, llm, matching, rules, safety, scoreboard
 from casebridge.models import CaseBrief, Evidence, Fact, PRACTICE_AREAS
 
 st.set_page_config(page_title="CaseBridge", page_icon=":material/edit_note:", layout="wide")
@@ -49,6 +50,7 @@ ss.setdefault("sent_to", [])
 ss.setdefault("my_case_id", None)
 ss.setdefault("hidden", set())     # statements the client chose to hide from lawyers (safety.fact_key)
 ss.setdefault("last_mic_id", None) # id of the last mic recording already added, to avoid re-processing
+ss.setdefault("toast", None)       # a one-off message to show after the next rerun
 
 
 # --- look and feel ---------------------------------------------------------------------
@@ -132,6 +134,18 @@ ul.cb-list,ul.cb-why{list-style:none;margin:0;padding:0 !important}
 .cb-case-head .cb-date{padding:0;font-size:.9rem;color:#1E2230}
 .cb-case-head strong{color:#1E2230}
 .st-key-confirm{border:1.5px solid #1E2230 !important}
+.cb-stamp{display:inline-block;margin:.2rem 0 .5rem;padding:.15rem .7rem;border:3px solid #B42318;border-radius:4px;
+  color:#B42318;font-weight:800;letter-spacing:.12em;font-size:1rem;transform:rotate(-4deg);
+  animation:cb-slam .45s cubic-bezier(.2,1.6,.4,1) both}
+@keyframes cb-slam{from{transform:scale(2.4) rotate(-12deg);opacity:0}to{transform:scale(1) rotate(-4deg);opacity:1}}
+.cb-hidden-instr{background:#FDE2DE;outline:2px solid #B42318;border-radius:2px}
+.st-key-score [data-testid="stMetricValue"]{font-variant-numeric:tabular-nums}
+.cb-swap s{display:inline-block;max-width:30em;overflow:hidden;white-space:nowrap;vertical-align:bottom;
+  text-decoration-color:#B42318;animation:cb-out .5s ease-in forwards;animation-delay:var(--d)}
+.cb-swap .cb-redact{opacity:0;animation:cb-in .35s ease-out forwards;animation-delay:calc(var(--d) + .35s)}
+@keyframes cb-out{60%{opacity:1;max-width:30em}to{opacity:0;max-width:0}}
+@keyframes cb-in{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
+.cb-reveal{font-size:.95rem;line-height:1.9;color:#1E2230;margin:.35rem 0;padding:.35rem 0;border-bottom:1px solid #E3E5EC}
 
 .st-key-nav [role="radiogroup"]{gap:.2rem;counter-reset:step}
 .st-key-nav [role="radiogroup"] > div{counter-increment:step;width:100%}
@@ -379,6 +393,36 @@ def marked_source(ev: Evidence, facts: list) -> str:
     return text
 
 
+HIDDEN_INSTRUCTION_RE = re.compile(r"&lt;!--.*?--&gt;", re.S)
+
+
+def flagged_ids() -> set[str]:
+    """Evidence items that try to give instructions to an AI (see safety.has_injection)."""
+    return set(safety.injection_flags(ss.evidence))
+
+
+def blocked_stamp(text: str) -> str:
+    """The BLOCKED stamp plus the text with any hidden <!-- ... --> instruction outlined in red."""
+    marked = HIDDEN_INSTRUCTION_RE.sub(lambda m: f'<span class="cb-hidden-instr">{m.group(0)}</span>', esc(text))
+    return ('<span class="cb-stamp">BLOCKED</span><p class="cb-meta">This item contains instructions aimed at an '
+            'AI. CaseBridge ignored them and kept the item as evidence only.</p>'
+            f'<p class="cb-source">{marked}</p>')
+
+
+def reveal(text: str, names: dict[str, str], start: float = 0.0) -> tuple[str, float]:
+    """A fact in the client's view whose personal details fade into lawyer-view placeholders one by one.
+    Returns the HTML and the delay to start the next fact's animation at."""
+    out, delay = esc(text), start
+    for original, token in scoreboard.redaction_swaps(text, names):
+        o = esc(original)
+        if o not in out:
+            continue
+        chips = rich(token)
+        out = out.replace(o, f'<span class="cb-swap" style="--d:{delay:.2f}s"><s>{o}</s>{chips}</span>', 1)
+        delay += 0.35
+    return out, delay
+
+
 def engine_status(engine: str) -> tuple[str, str]:
     checker = llm.checker()
     if engine == "rules":
@@ -415,6 +459,9 @@ def privacy_receipt(red: dict):
 # --- sidebar ---------------------------------------------------------------------------
 
 style(CSS)
+if ss.toast:
+    st.toast(ss.toast, icon=":material/check_circle:")
+    ss.toast = None
 style(nav_progress_css())
 
 with st.sidebar:
@@ -444,6 +491,10 @@ if page.startswith("1"):
             ss.brief = None
         if st.button("Load demo case (Bao)", icon=":material/folder_open:"):
             ss.evidence = ingest.load_demo_case("bao")
+            ss.brief = None
+        if st.button("Try a trick letter", icon=":material/warning:",
+                     help="Adds a fictional insurer letter that hides instructions for an AI."):
+            ss.evidence = ingest.number(ss.evidence + [ingest.load_trick_letter()])
             ss.brief = None
         if st.button("Clear", icon=":material/restart_alt:", type="tertiary"):
             ss.evidence, ss.brief = [], None
@@ -531,20 +582,37 @@ if page.startswith("1"):
             f'display:inline-block;margin-right:.6rem;padding:0 .4rem;border-radius:2px;font-size:.75rem;'
             f'font-weight:700;line-height:1.4rem;background:{highlighter(e.id)};color:#1E2230}}'
             for e in ss.evidence))
+        injected = flagged_ids()   # not `flagged`: that name is the review-mark helper
         for e in ss.evidence:
-            with st.expander(e.title, icon=f":material/{KIND_ICONS.get(e.kind, 'attach_file')}:", key=f"ev_{e.id}"):
-                st.html(f'<p class="cb-source">{esc(e.text)}</p>')
+            title = f"{e.title} · contains instructions to an AI" if e.id in injected else e.title
+            icon = "gpp_bad" if e.id in injected else KIND_ICONS.get(e.kind, "attach_file")
+            with st.expander(title, icon=f":material/{icon}:", key=f"ev_{e.id}", expanded=e.id in injected):
+                st.html(blocked_stamp(e.text) if e.id in injected else f'<p class="cb-source">{esc(e.text)}</p>')
                 if e.kind == "voice":
                     meta("Filler sounds, swearing and insults are left out of the transcript. Your recording is unchanged.")
         built_now = False
         if st.button("Rebuild my case brief" if ss.brief else "Build my case brief",
                      type="secondary" if ss.brief else "primary",
                      icon=":material/refresh:" if ss.brief else ":material/arrow_forward:"):
-            with st.spinner("Organizing your evidence..."):
+            with st.status("Building your case brief…", expanded=True) as status:
+                voices = sum(e.kind == "voice" for e in ss.evidence)
+                st.write(f"Reading {len(ss.evidence)} pieces of evidence"
+                         + (f", including {voices} voice memo{'s' if voices != 1 else ''}" if voices else ""))
                 ss.brief = brief_agent.build(ss.evidence)
                 ss.hidden = set()
                 for k in [k for k in ss if str(k).startswith("hide_")]:
                     del ss[k]          # a new brief starts with nothing hidden
+                red = safety.redact_brief(ss.brief, evidence_names())
+                stats = scoreboard.brief_stats(ss.evidence, ss.brief, red)
+                # Short pauses so each step can be read; the work above is already done.
+                for line in (f"Found {stats['facts']} facts, and linked every one to its source",
+                             f"Checked every letter for hidden instructions: "
+                             f"{stats['hidden_instructions'] or 'none'} found",
+                             f"Checked for legal advice: {stats['advice_given']} in your brief",
+                             f"Hid {stats['details_hidden']} personal details from the lawyer view"):
+                    time.sleep(0.35)
+                    st.write(line)
+                status.update(label="Your brief is ready", state="complete", expanded=False)
             built_now = True
         if built_now:
             state_note("<b>Your brief is ready.</b> Every statement in it points back to your evidence.")
@@ -572,6 +640,21 @@ elif page.startswith("2"):
     meta(f"{status} Every statement shows the evidence it came from. Statements without a source are removed "
          "automatically.")
 
+    # What CaseBridge did with this case. It counts our own work, never the case's strength or value.
+    stats = scoreboard.brief_stats(ss.evidence, b, safety.redact_brief(b, evidence_names()))
+    with st.container(key="score"):
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Facts with a source", f"{stats['facts_cited']}/{stats['facts']}", border=True)
+        m2.metric("Legal advice given", stats["advice_given"], border=True)
+        m3.metric("Details hidden from lawyers", stats["details_hidden"], border=True)
+        m4.metric("Hidden instructions caught", stats["hidden_instructions"], border=True)
+        st.progress(stats["readiness_pct"] / 100,
+                    text=f"Evidence checklist: {stats['evidence_covered']} of {stats['evidence_checklist']} items a "
+                         "lawyer usually asks for (how complete your evidence is, not how strong your case is)")
+    only = [l for l in b.languages if l != "English"]
+    if only and "English" not in b.languages:
+        state_note(f"<b>You speak {esc(', '.join(only))}.</b> We'll only show lawyers who speak it too.")
+
     with st.container(border=True, key="confirm"):
         label("Please confirm. You know your situation best.")
         c1, c2, c3, c4 = st.columns([3, 4, 2.5, 2.5], vertical_alignment="bottom")
@@ -590,11 +673,19 @@ elif page.startswith("2"):
         if not w.startswith(CHECK_WARNINGS):
             notice(w, b.deadlines)
 
-    # Insurer tactics: what each one means, and a question to bring to a lawyer. Never advice.
+    # Insurer tactics, one calm card per document: what each one means, and a question for a lawyer. Never advice.
+    by_source: dict[str, list[dict]] = {}
     for a in b.alerts:
-        tags = "".join(tag(s) for s in a["sources"])
-        st.html(f'<div class="cb-notice cb-time"><b>{esc(a["title"])}</b> {tags}<br>{esc(a["meaning"])}'
-                f'<br><i>A question to ask a lawyer:</i> {esc(a["ask"])}</div>')
+        by_source.setdefault(a["sources"][0], []).append(a)
+    for src, alerts in by_source.items():
+        name = ev_by_id[src].title if src in ev_by_id else src
+        with st.container(border=True):
+            st.html(f'<p class="cb-label">{tag(src)} {esc(name)}: {len(alerts)} thing'
+                    f'{"s" if len(alerts) != 1 else ""} to know</p>')
+            for a in alerts:
+                with st.expander(a["title"], icon=":material/info:"):
+                    st.html(f'<p class="cb-meta">{esc(a["meaning"])}<br><i>A question to ask a lawyer:</i> '
+                            f'{esc(a["ask"])}</p>')
     # Details that disagree between documents, with the evidence on each side.
     for c in b.contradictions:
         st.html(f'<div class="cb-notice cb-note"><b>Details that don\'t match: {esc(c["topic"])}</b>'
@@ -615,8 +706,22 @@ elif page.startswith("2"):
                            label_visibility="collapsed")
         all_facts = b.timeline + b.parties + b.injuries + b.damages
         with st.container(border=True):
-            st.html(f'<div class="cb-source-head">{tag(sid)}<span>Cited sentences are highlighted</span></div>'
-                    f'<p class="cb-source">{marked_source(ev_by_id[sid], all_facts)}</p>')
+            src = ev_by_id[sid]
+            english, _, original = src.text.partition("\nOriginal (")
+            if sid in flagged_ids():
+                st.html(f'<div class="cb-source-head">{tag(sid)}</div>{blocked_stamp(src.text)}')
+            elif original:      # voice memo: the client's own words next to the English version
+                lang, _, words = original.partition("): ")
+                t_en, t_own = st.tabs(["English", f"Your words ({lang})"])
+                with t_en:
+                    shown = Evidence(src.id, src.kind, src.title, english)
+                    st.html(f'<div class="cb-source-head">{tag(sid)}<span>Cited sentences are highlighted</span>'
+                            f'</div><p class="cb-source">{marked_source(shown, all_facts)}</p>')
+                with t_own:
+                    st.html(f'<p class="cb-source">{esc(words)}</p>')
+            else:
+                st.html(f'<div class="cb-source-head">{tag(sid)}<span>Cited sentences are highlighted</span></div>'
+                        f'<p class="cb-source">{marked_source(src, all_facts)}</p>')
         heading("Deadlines to confirm with a lawyer")
         show_deadlines(b.deadlines, stacked=True)
         meta("General California rules. Exceptions apply. A lawyer must confirm every date.")
@@ -631,6 +736,13 @@ elif page.startswith("2"):
 
     with st.expander("Preview what a lawyer sees before you accept them", icon=":material/visibility_off:"):
         meta("Names, phone numbers, emails, plates and report numbers stay hidden until you accept a lawyer.")
+        if st.toggle("Watch your details disappear", key="reveal"):
+            names, delay, rows = evidence_names(), 0.0, []
+            for f in b.timeline + b.parties + b.injuries + b.damages:
+                if scoreboard.redaction_swaps(f.text, names):
+                    row, delay = reveal(f.text, names, delay)
+                    rows.append(f'<p class="cb-reveal">{row}</p>')
+            st.html("".join(rows) or '<p class="cb-empty">Nothing personal to hide in these statements.</p>')
         red = safety.redact_brief(b, evidence_names())
         receipt = st.container()       # filled after the checkboxes, so it reflects this click
         lead(red["summary"])
@@ -684,6 +796,7 @@ elif page.startswith("3"):
                            connect_requests=[], connected=[], mine=True)
                 ss.board.insert(0, red)
                 ss.my_case_id = red["id"]
+                ss.toast = "Your anonymized case is on the lawyer board. You choose who sees the rest."
                 st.rerun()
         else:
             label("Your anonymized case")
