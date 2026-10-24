@@ -48,3 +48,19 @@ def test_every_data_file_is_utf8():
     for path in DATA_DIR.rglob("*"):
         if path.is_file() and path.suffix in {".txt", ".json", ".md"}:
             path.read_bytes().decode("utf-8")
+
+
+def _county(text):
+    return rules.detect_county([Evidence(id="E1", kind="document", title="t", text=text)])
+
+
+def test_county_is_read_from_the_list_of_california_counties():
+    assert _county("Fremont is in Alameda County.") == "Alameda"
+    assert _county("Superior Court, County of Contra Costa") == "Contra Costa"
+    assert _county("Filed in San Luis Obispo County") == "San Luis Obispo"
+
+
+def test_county_vehicle_is_not_a_county_name():
+    # Used to return "A". Now it falls through to the city lookup.
+    assert _county("I was hit by a county vehicle in Oakland.") == "Alameda"
+    assert _county("I was hit by a county vehicle.") is None

@@ -101,15 +101,9 @@ class TestMinutes:
 class TestDetectCounty:
     """County detection branches."""
 
-    @pytest.mark.xfail(
-        reason="detect_county captures everything before 'county' with a non-greedy regex "
-               "then calls .title() on the whole group. 'in santa clara' becomes "
-               "'In Santa Clara' instead of 'Santa Clara'. The regex intended to grab "
-               "only the county name but captures preceding words too."
-    )
     def test_explicit_county_phrase(self):
-        """'Santa Clara County' in text should return 'Santa Clara', but current code
-        returns 'The Incident Occurred In Santa Clara' due to greedy capture."""
+        """'Santa Clara County' in text returns 'Santa Clara' (Bob found this returned
+        'The Incident Occurred In Santa Clara'; fixed with rules.CA_COUNTIES)."""
         assert rules.detect_county([ev("The incident occurred in Santa Clara County.")]) == "Santa Clara"
 
     def test_county_with_comma_prefix(self):
@@ -124,14 +118,8 @@ class TestDetectCounty:
         """No county name and no known city → None."""
         assert rules.detect_county([ev("I was injured at the store today.")]) is None
 
-    @pytest.mark.xfail(
-        reason="Same root cause as test_explicit_county_phrase: the non-greedy regex "
-               "captures 'fremont is in alameda' → .title() → 'Fremont Is In Alameda'. "
-               "When the text contains a city name before the county phrase, the "
-               "whole sentence fragment is returned instead of just the county name."
-    )
     def test_county_phrase_with_preceding_words(self):
-        """'Alameda County' preceded by other words returns the wrong value."""
+        """'Alameda County' preceded by other words returns just 'Alameda'."""
         result = rules.detect_county([ev("Fremont is in Alameda County.")])
         assert result == "Alameda"
 

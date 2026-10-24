@@ -124,13 +124,28 @@ def detect_languages(evidence: list[Evidence]) -> list[str]:
     return found + (["English"] if english else [])
 
 
+# All 58 California counties. Matching against a fixed list stops "Fremont is in Alameda County"
+# from returning "Fremont Is In Alameda", and "a county vehicle" from returning "A".
+CA_COUNTIES = [
+    "Alameda", "Alpine", "Amador", "Butte", "Calaveras", "Colusa", "Contra Costa", "Del Norte",
+    "El Dorado", "Fresno", "Glenn", "Humboldt", "Imperial", "Inyo", "Kern", "Kings", "Lake", "Lassen",
+    "Los Angeles", "Madera", "Marin", "Mariposa", "Mendocino", "Merced", "Modoc", "Mono", "Monterey",
+    "Napa", "Nevada", "Orange", "Placer", "Plumas", "Riverside", "Sacramento", "San Benito",
+    "San Bernardino", "San Diego", "San Francisco", "San Joaquin", "San Luis Obispo", "San Mateo",
+    "Santa Barbara", "Santa Clara", "Santa Cruz", "Shasta", "Sierra", "Siskiyou", "Solano", "Sonoma",
+    "Stanislaus", "Sutter", "Tehama", "Trinity", "Tulare", "Tuolumne", "Ventura", "Yolo", "Yuba",
+]
+_COUNTY_NAMES = "|".join(re.escape(c.lower()) for c in sorted(CA_COUNTIES, key=len, reverse=True))
+COUNTY_RE = re.compile(rf"\b(?:({_COUNTY_NAMES})\s+county|county\s+of\s+({_COUNTY_NAMES}))\b")
+
+
 def detect_county(evidence: list[Evidence]) -> str | None:
+    """The first California county named in the evidence ("Santa Clara County", "County of
+    Alameda"), else the county of a known city. None if unclear; the client confirms it."""
     text = all_text(evidence)
-    m = re.search(r"([a-z ]+?) county", text)
+    m = COUNTY_RE.search(text)
     if m:
-        name = m.group(1).strip().split(",")[-1].strip().title()
-        if name:
-            return name
+        return (m.group(1) or m.group(2)).title()
     for city, county in CITY_TO_COUNTY.items():
         if city in text:
             return county
