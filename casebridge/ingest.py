@@ -427,6 +427,18 @@ def load_demo_case(name: str = "maria") -> list[Evidence]:
     return number([_read_evidence_file(p) for p in sorted(DEMO_CASES[name].glob("*.txt"))])
 
 
+def demo_photo(ev: Evidence) -> Path | None:
+    """The picture behind a demo photo's description, when the demo case ships one (e.g. Maria's
+    IMG_4471.jpg). Only a loaded demo item matches: an upload with the same file name does not."""
+    if ev.kind != "photo" or not ev.file_name:
+        return None
+    for folder in DEMO_CASES.values():
+        image = folder / ev.file_name
+        if image.is_file() and any(_read_evidence_file(p).text == ev.text for p in folder.glob("*.txt")):
+            return image
+    return None
+
+
 TRICK_LETTER = DATA_DIR / "demo_extras" / "trick_letter.txt"
 
 

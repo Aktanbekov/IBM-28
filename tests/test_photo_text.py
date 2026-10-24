@@ -68,3 +68,14 @@ def test_other_formats_are_converted_to_png():
     out = io.BytesIO()
     Image.new("RGB", (10, 10), "white").save(out, format="BMP")
     assert ingest._image_for_upload(out.getvalue())[1] == "image/png"
+
+
+def test_maria_demo_photos_show_their_picture():
+    photos = [e for e in ingest.load_demo_case("maria") if e.kind == "photo"]
+    assert [ingest.demo_photo(e).name for e in photos] == ["IMG_4471.jpg", "IMG_4473.jpg"]
+    assert all(not ingest.photo_metadata(ingest.demo_photo(e).read_bytes()).get("gps") for e in photos)
+
+
+def test_an_upload_with_a_demo_file_name_gets_no_demo_picture():
+    from casebridge.models import Evidence
+    assert ingest.demo_photo(Evidence("E1", "photo", "My photo", "My own caption.", file_name="IMG_4471.jpg")) is None
