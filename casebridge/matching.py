@@ -1,0 +1,40 @@
+"""Match a case to lawyers. Hard filters first (practice area, which side they represent),
+then an explainable fit score. No case 'value' is ever computed or shown."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+LAWYERS_FILE = Path(__file__).resolve().parent.parent / "data" / "lawyers.json"
+
+
+def load_lawyers() -> list[dict]:
+    return json.loads(LAWYERS_FILE.read_text())
+
+
+def match(case_type: str, side: str, county: str | None, languages: list[str],
+          lawyers: list[dict] | None = None) -> tuple[list[dict], dict]:
+    lawyers = lawyers if lawyers is not None else load_lawyers()
+    results, excluded = [], {"practice_area": 0, "side": 0}
+    for lw in lawyers:
+        if case_type not in lw["practice_areas"]:
+            excluded["practice_area"] += 1
+            continue
+        if side not in lw["sides"]:
+            excluded["side"] += 1
+            continue
+        score, why = 5.0, [f"Handles {case_type.replace('_', ' ')} cases",
+                           f"Represents the {side} side"]
+        if county and county in lw["counties"]:
+            score += 3
+            why.append(f"Practices in {county} County")
+        shared = [l for l in languages if l in lw["languages"] and l != "English"]
+        if shared:
+            score += 2
+            why.append(f"Speaks {', '.join(shared)}")
+        score += lw["rating"] - 4          # small nudge for reviews, never dominant
+        if lw.get("free_consultation"):
+            why.append("Free first consultation")
+        results.append({**lw, "fit_score": round(score, 1), "why": why})
+    results.sort(key=lambda r: (-r["fit_score"], -r["rating"]))
+    return results, excluded

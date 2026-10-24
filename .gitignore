@@ -271,3 +271,7 @@ AGENTS.override.md
 .DS_Store
 ._*
 Thumbs.db
+
+# Streamlit's agent skill is a symlink into the local .venv; it would be a broken link for teammates
+.claude/skills/developing-with-streamlit
+.agents/skills/developing-with-streamlit

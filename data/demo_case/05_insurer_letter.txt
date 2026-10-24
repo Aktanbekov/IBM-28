@@ -1,0 +1,5 @@
+kind: document
+title: Letter from other driver's insurance company
+file: insurer_letter.pdf
+---
+Dear Ms. Lopez, Summit Mutual Insurance represents our insured Kevin Holt regarding the incident of October 2, 2026. We are prepared to offer $1,200 as full and final settlement of all bodily injury claims. Please sign the enclosed release and return it by October 30, 2026. Contact adjuster Paula Grant at pgrant@summitmutual.example.

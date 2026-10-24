@@ -1,0 +1,5 @@
+kind: document
+title: San Jose Police traffic collision report (excerpt)
+file: police_report_SJ-26-118842.pdf
+---
+Date of collision: October 2, 2026, 17:42. Location: Stevens Creek Blvd at Winchester Blvd, San Jose, Santa Clara County. Vehicle 1: 2019 Honda Civic, driver Maria Lopez, stopped for red signal. Vehicle 2: 2021 Ford F-150, plate 8ABC123, driver Kevin Holt. Vehicle 2 failed to stop and struck Vehicle 1 from the rear. Driver 2 stated he was distracted by his phone. Primary collision factor: unsafe speed / inattention by Driver 2. Driver 1 complained of neck pain at the scene.

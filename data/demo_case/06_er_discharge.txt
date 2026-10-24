@@ -1,0 +1,5 @@
+kind: document
+title: Emergency room discharge summary
+file: er_discharge.pdf
+---
+Patient: Maria Lopez, DOB 04/12/1991. Seen October 2, 2026, 21:05. Diagnosis: cervical strain (whiplash) following rear-end motor vehicle collision. Treatment: soft cervical collar, cyclobenzaprine. Follow up with primary care in 7 days; physical therapy recommended.

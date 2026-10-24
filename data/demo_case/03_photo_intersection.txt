@@ -1,0 +1,5 @@
+kind: photo
+title: Photo - intersection
+file: IMG_4473.jpg
+---
+Photo of the intersection of Stevens Creek Blvd and Winchester Blvd, San Jose. Traffic signal showing red for the lane where the Civic is stopped. Debris on the road behind the car.

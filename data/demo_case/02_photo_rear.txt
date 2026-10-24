@@ -1,0 +1,5 @@
+kind: photo
+title: Photo - rear bumper damage
+file: IMG_4471.jpg
+---
+Photo taken Oct 2, 2026 at the scene. Rear bumper of a silver Honda Civic crushed inward, trunk lid bent, taillight broken. Pickup truck with license plate 8ABC123 visible behind the car.

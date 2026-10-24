@@ -1,0 +1,351 @@
+[
+ {
+  "id": "L1",
+  "name": "Ana Delgado",
+  "firm": "Delgado Injury Law",
+  "practice_areas": [
+   "auto_accident",
+   "premises"
+  ],
+  "sides": [
+   "plaintiff"
+  ],
+  "counties": [
+   "Santa Clara",
+   "San Mateo"
+  ],
+  "languages": [
+   "English",
+   "Spanish"
+  ],
+  "rating": 4.9,
+  "reviews": 212,
+  "years": 14,
+  "fee_model": "Contingency (33%)",
+  "free_consultation": true,
+  "bio": "Former insurance-defense attorney who now represents injured drivers and pedestrians.",
+  "review_snippets": [
+   "Explained everything in Spanish, very patient.",
+   "Got back to me the same day."
+  ]
+ },
+ {
+  "id": "L2",
+  "name": "James Whitfield",
+  "firm": "Whitfield & Co.",
+  "practice_areas": [
+   "auto_accident"
+  ],
+  "sides": [
+   "defense"
+  ],
+  "counties": [
+   "Santa Clara",
+   "Alameda"
+  ],
+  "languages": [
+   "English"
+  ],
+  "rating": 4.7,
+  "reviews": 98,
+  "years": 22,
+  "fee_model": "Hourly ($425/hr)",
+  "free_consultation": false,
+  "bio": "Defends drivers and small businesses sued after collisions.",
+  "review_snippets": [
+   "Calm and strategic.",
+   "Knew the local courts well."
+  ]
+ },
+ {
+  "id": "L3",
+  "name": "Priya Raman",
+  "firm": "Raman Law Group",
+  "practice_areas": [
+   "auto_accident",
+   "dog_bite",
+   "premises"
+  ],
+  "sides": [
+   "plaintiff"
+  ],
+  "counties": [
+   "Santa Clara",
+   "Alameda",
+   "San Francisco"
+  ],
+  "languages": [
+   "English",
+   "Tamil",
+   "Hindi"
+  ],
+  "rating": 4.8,
+  "reviews": 156,
+  "years": 11,
+  "fee_model": "Contingency (33%)",
+  "free_consultation": true,
+  "bio": "Focus on rideshare and multi-car collisions.",
+  "review_snippets": [
+   "Very organized, kept me updated."
+  ]
+ },
+ {
+  "id": "L4",
+  "name": "Minh Tran",
+  "firm": "Tran Accident Attorneys",
+  "practice_areas": [
+   "auto_accident"
+  ],
+  "sides": [
+   "plaintiff"
+  ],
+  "counties": [
+   "Santa Clara"
+  ],
+  "languages": [
+   "English",
+   "Vietnamese"
+  ],
+  "rating": 4.6,
+  "reviews": 87,
+  "years": 9,
+  "fee_model": "Contingency (35%)",
+  "free_consultation": true,
+  "bio": "Neighborhood practice in East San Jose.",
+  "review_snippets": [
+   "Treated my family with respect."
+  ]
+ },
+ {
+  "id": "L5",
+  "name": "Rachel Kim",
+  "firm": "Kim Litigation",
+  "practice_areas": [
+   "auto_accident",
+   "workplace"
+  ],
+  "sides": [
+   "plaintiff",
+   "defense"
+  ],
+  "counties": [
+   "San Francisco",
+   "San Mateo"
+  ],
+  "languages": [
+   "English",
+   "Korean"
+  ],
+  "rating": 4.5,
+  "reviews": 64,
+  "years": 17,
+  "fee_model": "Contingency or hourly",
+  "free_consultation": true,
+  "bio": "Handles both sides of collision and workplace injury matters.",
+  "review_snippets": [
+   "Straight shooter."
+  ]
+ },
+ {
+  "id": "L6",
+  "name": "Carlos Mendoza",
+  "firm": "Mendoza Legal",
+  "practice_areas": [
+   "auto_accident",
+   "workplace"
+  ],
+  "sides": [
+   "plaintiff"
+  ],
+  "counties": [
+   "Alameda",
+   "Contra Costa",
+   "Santa Clara"
+  ],
+  "languages": [
+   "English",
+   "Spanish"
+  ],
+  "rating": 4.4,
+  "reviews": 143,
+  "years": 19,
+  "fee_model": "Contingency (33%)",
+  "free_consultation": true,
+  "bio": "Represents workers and drivers across the East Bay and South Bay.",
+  "review_snippets": [
+   "Fought hard for me."
+  ]
+ },
+ {
+  "id": "L7",
+  "name": "Helen Zhou",
+  "firm": "Zhou & Partners",
+  "practice_areas": [
+   "medical"
+  ],
+  "sides": [
+   "plaintiff"
+  ],
+  "counties": [
+   "San Francisco",
+   "Santa Clara"
+  ],
+  "languages": [
+   "English",
+   "Mandarin",
+   "Cantonese"
+  ],
+  "rating": 4.9,
+  "reviews": 51,
+  "years": 25,
+  "fee_model": "Contingency (capped by law)",
+  "free_consultation": true,
+  "bio": "Medical malpractice only.",
+  "review_snippets": [
+   "Deep medical knowledge."
+  ]
+ },
+ {
+  "id": "L8",
+  "name": "David Okafor",
+  "firm": "Okafor Defense",
+  "practice_areas": [
+   "auto_accident",
+   "premises"
+  ],
+  "sides": [
+   "defense"
+  ],
+  "counties": [
+   "Santa Clara",
+   "San Mateo",
+   "San Francisco"
+  ],
+  "languages": [
+   "English"
+  ],
+  "rating": 4.6,
+  "reviews": 72,
+  "years": 15,
+  "fee_model": "Hourly ($390/hr)",
+  "free_consultation": false,
+  "bio": "Defends property owners and drivers.",
+  "review_snippets": [
+   "Responsive and clear about costs."
+  ]
+ },
+ {
+  "id": "L9",
+  "name": "Lisa Moreno",
+  "firm": "Moreno Premises Law",
+  "practice_areas": [
+   "premises",
+   "dog_bite"
+  ],
+  "sides": [
+   "plaintiff"
+  ],
+  "counties": [
+   "San Mateo",
+   "Santa Clara"
+  ],
+  "languages": [
+   "English",
+   "Spanish"
+  ],
+  "rating": 4.7,
+  "reviews": 90,
+  "years": 12,
+  "fee_model": "Contingency (33%)",
+  "free_consultation": true,
+  "bio": "Slip-and-fall and dog bite specialist.",
+  "review_snippets": [
+   "Very compassionate."
+  ]
+ },
+ {
+  "id": "L10",
+  "name": "Tom Becker",
+  "firm": "Becker Trial Lawyers",
+  "practice_areas": [
+   "auto_accident"
+  ],
+  "sides": [
+   "plaintiff"
+  ],
+  "counties": [
+   "Alameda",
+   "Contra Costa"
+  ],
+  "languages": [
+   "English"
+  ],
+  "rating": 4.3,
+  "reviews": 201,
+  "years": 28,
+  "fee_model": "Contingency (40%)",
+  "free_consultation": false,
+  "bio": "Trial-focused firm for serious-injury collisions.",
+  "review_snippets": [
+   "Experienced in court."
+  ]
+ },
+ {
+  "id": "L11",
+  "name": "Grace Santos",
+  "firm": "Santos Law",
+  "practice_areas": [
+   "auto_accident",
+   "premises"
+  ],
+  "sides": [
+   "plaintiff"
+  ],
+  "counties": [
+   "Santa Clara",
+   "Alameda"
+  ],
+  "languages": [
+   "English",
+   "Tagalog"
+  ],
+  "rating": 4.8,
+  "reviews": 77,
+  "years": 8,
+  "fee_model": "Contingency (33%)",
+  "free_consultation": true,
+  "bio": "Serves the Filipino community in the South Bay.",
+  "review_snippets": [
+   "Made me feel heard."
+  ]
+ },
+ {
+  "id": "L12",
+  "name": "Omar Haddad",
+  "firm": "Haddad Workplace Law",
+  "practice_areas": [
+   "workplace"
+  ],
+  "sides": [
+   "plaintiff"
+  ],
+  "counties": [
+   "Santa Clara",
+   "Alameda",
+   "San Francisco"
+  ],
+  "languages": [
+   "English",
+   "Arabic"
+  ],
+  "rating": 4.6,
+  "reviews": 58,
+  "years": 13,
+  "fee_model": "Contingency (33%)",
+  "free_consultation": true,
+  "bio": "Workplace injuries and employer disputes.",
+  "review_snippets": [
+   "Knows workers comp inside out."
+  ]
+ }
+]
