@@ -7,10 +7,10 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-23 19:19 (commit `4e5f559`) |
-| Tests | passing (9 passed) |
-| Commits | 6 |
-| Contributors | Aktai Aktanbekov, Aktanbekov |
+| Last updated | 2026-10-23 19:45 (commit `960d722`) |
+| Tests | passing (117 passed) |
+| Commits | 29 |
+| Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Shahzod Bakhriev |
 <!-- AUTO:STATUS:END -->
 
 ## The problem
@@ -126,8 +126,18 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 
 | Date | Author | Change |
 |---|---|---|
+| 2026-10-24 | Claude | tests: run the pitch's user stories end to end |
+| 2026-10-24 | Claude | matching: still show lawyers when the case type is unclear |
+| 2026-10-24 | Claude | rules: footage and dog-bite checklists, honest reply to "Should I sign?" |
+| 2026-10-24 | Claude | tests: cover the six new engine features |
+| 2026-10-24 | Claude | ui: show alerts, contradictions, tips and the privacy receipt |
+| 2026-10-24 | Claude | ingest: read photo time and GPS, strip photo metadata |
+| 2026-10-24 | Claude | rules: insurer alerts, contradiction check, tips for missing evidence |
+| 2026-10-24 | Claude | ai: fence evidence as data and flag injected instructions |
+| 2026-10-24 | Claude | safety: catch hidden AI instructions, add privacy receipt and posting gate |
 | 2026-10-23 | Aktanbekov | ui: restyle app with the Marked-up paperwork design |
-| 2026-10-23 | Aktanbekov | Add CaseBridge MVP, team rules, and auto-updating README |
-| 2026-10-23 | Aktanbekov | Extend .gitignore for secrets, AI coding tools, and editors |
-| 2026-10-23 | Aktai Aktanbekov | Initial commit |
+| 2026-10-24 | Claude | ingest: don't ask for a typed transcript when only the language is unclear |
+| 2026-10-24 | Claude | safety: close the redaction and guardrail gaps Bob's tests found |
+| 2026-10-23 | Shahzod Bakhriev | bob_commit_ingest,testengine improvements |
+| 2026-10-24 | Claude | ai: take client languages from rules.detect_languages |
 <!-- AUTO:CHANGELOG:END -->
