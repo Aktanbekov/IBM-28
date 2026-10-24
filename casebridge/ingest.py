@@ -54,6 +54,12 @@ def transcribe(data: bytes, file_name: str = "audio.m4a") -> tuple[str, str | No
     Runs locally with faster-whisper, so audio never leaves the machine. Non-English speech is
     translated to English, because the rules engine and lawyers read English; the detected
     language is kept so matching can find a lawyer who speaks it.
+
+    If info.language_probability < 0.5 the language is treated as unknown (None).
+    When the detected language is not English a second task="transcribe" pass keeps the
+    original-language transcript and appends it to the text under an "Original (<Language>):"
+    line, so the brief can reproduce what the client actually said.
+
     Never raises: if Whisper is missing or fails, returns a placeholder and None so the
     client can type the transcript instead.
     """
@@ -66,7 +72,25 @@ def transcribe(data: bytes, file_name: str = "audio.m4a") -> tuple[str, str | No
         text = " ".join(seg.text.strip() for seg in segments).strip()
     except Exception as exc:
         return f"[Could not transcribe this audio ({type(exc).__name__}). Please type what it says.]", None
+
+    # Treat low-confidence language detection as unknown.
+    if getattr(info, "language_probability", 1.0) < 0.5:
+        return text or "[No speech detected in this recording.]", None
+
     language = LANGUAGE_NAMES.get(info.language, info.language)
+
+    # For non-English audio, append the original-language transcript so the brief preserves
+    # exactly what the client said (useful for lawyers who share that language).
+    if language != "English":
+        try:
+            orig_segments, _ = model.transcribe(io.BytesIO(data), task="transcribe", vad_filter=True)
+            orig_text = " ".join(seg.text.strip() for seg in orig_segments).strip()
+            if orig_text:
+                label = f"Original ({language}):"
+                text = f"{text}\n{label} {orig_text}" if text else f"{label} {orig_text}"
+        except Exception:
+            pass  # original-language pass is best-effort; never raises
+
     return text or "[No speech detected in this recording.]", language
 
 
@@ -105,7 +129,7 @@ def load_demo_case(name: str = "maria") -> list[Evidence]:
     letter. "rosa": Spanish voice memo, store incident report, urgent care, adjuster text."""
     items = []
     for path in sorted(DEMO_CASES[name].glob("*.txt")):
-        header, _, body = path.read_text().partition("\n---\n")
+        header, _, body = path.read_text(encoding="utf-8").partition("\n---\n")
         meta = dict(line.split(": ", 1) for line in header.strip().splitlines())
         items.append(Evidence(id="", kind=meta["kind"], title=meta["title"],
                               text=body.strip(), file_name=meta.get("file")))

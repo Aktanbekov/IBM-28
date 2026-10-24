@@ -13,11 +13,20 @@ from casebridge.models import CaseBrief, Evidence, Fact  # noqa: E402
 # --- voice memos -------------------------------------------------------------------------
 
 class FakeWhisper:
+    """Simulates faster-whisper for two tasks:
+    - task="translate"   → English translation of Spanish audio
+    - task="transcribe"  → original-language transcript (Spanish)
+    """
     def transcribe(self, audio, task, vad_filter):
-        assert task == "translate"             # Spanish speech comes back as English text
-        segs = [SimpleNamespace(text=" I slipped on a wet floor at the store."),
-                SimpleNamespace(text=" My name is Rosa Martínez. ")]
-        return iter(segs), SimpleNamespace(language="es")
+        assert task in ("translate", "transcribe")
+        info = SimpleNamespace(language="es", language_probability=0.92)
+        if task == "translate":
+            segs = [SimpleNamespace(text=" I slipped on a wet floor at the store."),
+                    SimpleNamespace(text=" My name is Rosa Martínez. ")]
+        else:  # task="transcribe" — original Spanish
+            segs = [SimpleNamespace(text=" Me resbalé en el piso mojado de la tienda."),
+                    SimpleNamespace(text=" Mi nombre es Rosa Martínez. ")]
+        return iter(segs), info
 
 
 @pytest.fixture
@@ -27,8 +36,25 @@ def whisper(monkeypatch):
 
 def test_voice_memo_is_transcribed_with_language(whisper):
     text, lang = ingest.transcribe(b"fake-audio", "memo.m4a")
-    assert text == "I slipped on a wet floor at the store. My name is Rosa Martínez."
+    # English translation comes first; original Spanish appended after the label.
+    assert "I slipped on a wet floor at the store." in text
+    assert "Original (Spanish):" in text
+    assert "Me resbalé en el piso mojado" in text
     assert lang == "Spanish"
+
+
+def test_voice_memo_low_confidence_language_is_unknown(monkeypatch):
+    """language_probability < 0.5 → language returned as None (unknown)."""
+    class LowConfidenceWhisper:
+        def transcribe(self, audio, task, vad_filter):
+            assert task == "translate"
+            segs = [SimpleNamespace(text=" Some words.")]
+            info = SimpleNamespace(language="xx", language_probability=0.3)
+            return iter(segs), info
+    monkeypatch.setattr(ingest, "_load_whisper", lambda: LowConfidenceWhisper())
+    text, lang = ingest.transcribe(b"fake-audio", "memo.m4a")
+    assert lang is None
+    assert "Some words." in text
 
 
 def test_voice_evidence_feeds_language_into_brief(whisper):
