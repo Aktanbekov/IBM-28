@@ -61,8 +61,8 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Open http://localhost:8501, click **Load demo case (Maria)**, then **Build my case brief →**, and go
-through the pages in the sidebar.
+Open http://localhost:8501, click **Load demo case (Maria)**, then **Build my case brief**, then
+**Open my case brief**, and go through the steps in the sidebar.
 
 Run the tests:
 
@@ -94,6 +94,9 @@ casebridge/brief.py     The agent pipeline: rules -> Granite -> guardrails
 casebridge/safety.py    Citation enforcement, advice guardrail, PII redaction
 casebridge/matching.py  Explainable lawyer matching
 data/                   Fictional demo case and fictional lawyer profiles
+.streamlit/config.toml  App theme (colours, font); serves static/ so the font works offline
+static/fonts/           Atkinson Hyperlegible font files (SIL Open Font License)
+PRODUCT.md              Product context used by the Impeccable design skill
 tests/                  Automated tests
 scripts/                README auto-update script
 AGENTS.md               Rules for the team and for AI coding agents

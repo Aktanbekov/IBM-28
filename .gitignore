@@ -275,3 +275,6 @@ Thumbs.db
 # Streamlit's agent skill is a symlink into the local .venv; it would be a broken link for teammates
 .claude/skills/developing-with-streamlit
 .agents/skills/developing-with-streamlit
+
+# Impeccable's engine is a ~17 MB platform-specific binary per skill folder; the launcher downloads it on first run
+*/skills/impeccable/scripts/bin/
