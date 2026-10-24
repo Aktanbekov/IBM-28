@@ -7,9 +7,9 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-23 17:44 (commit `d4c511d`) |
+| Last updated | 2026-10-23 19:19 (commit `4e5f559`) |
 | Tests | passing (9 passed) |
-| Commits | 3 |
+| Commits | 6 |
 | Contributors | Aktai Aktanbekov, Aktanbekov |
 <!-- AUTO:STATUS:END -->
 
@@ -126,6 +126,7 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 
 | Date | Author | Change |
 |---|---|---|
+| 2026-10-23 | Aktanbekov | ui: restyle app with the Marked-up paperwork design |
 | 2026-10-23 | Aktanbekov | Add CaseBridge MVP, team rules, and auto-updating README |
 | 2026-10-23 | Aktanbekov | Extend .gitignore for secrets, AI coding tools, and editors |
 | 2026-10-23 | Aktai Aktanbekov | Initial commit |
