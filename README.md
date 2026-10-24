@@ -7,10 +7,10 @@ Built for the **SpartHill Hacks 2026 IBM AI Challenge** (Responsible AI for Busi
 <!-- AUTO:STATUS:START -->
 | | |
 |---|---|
-| Last updated | 2026-10-23 23:27 (commit `1f1ef3d`) |
-| Tests | passing (585 passed) |
-| Commits | 91 |
-| Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Shahzod Bakhriev |
+| Last updated | 2026-10-23 23:29 (commit `0702809`) |
+| Tests | passing (589 passed) |
+| Commits | 98 |
+| Contributors | Aktai Aktanbekov, Aktanbekov, Claude, Nurislam, Shahzod Bakhriev |
 <!-- AUTO:STATUS:END -->
 
 ## The problem
@@ -149,10 +149,9 @@ How we work together is in [AGENTS.md](AGENTS.md). How we used IBM Bob is in [BO
 | 2026-10-24 | Claude | safety: close advice, redaction and file-name injection gaps from security sweep |
 | 2026-10-24 | Claude | ai: treat model JSON as untrusted (coerce types, known languages only) |
 | 2026-10-24 | Claude | ingest: return a placeholder for damaged or huge PDFs instead of crashing |
+| 2026-10-23 | Nurislam | ci: restrict pytest to tests/ dir; add anthropic to requirements |
+| 2026-10-23 | Nurislam | Added to the features to the actual demo |
 | 2026-10-23 | Aktanbekov | ai: live Granite Guardian fact check, current watsonx models, check report UI |
 | 2026-10-24 | Claude | ui: preview of the judge demo moments (scoreboard, build steps, trick letter, reveal) |
 | 2026-10-24 | Claude | rules: never merge two sentences whose numbers differ |
-| 2026-10-24 | Claude | docs: log Bob's stress-test session |
-| 2026-10-24 | Claude | safety: stop the email pattern freezing on long hyphenated text |
-| 2026-10-24 | Claude | engine: scoreboard numbers and redaction swaps for the demo UI |
 <!-- AUTO:CHANGELOG:END -->
